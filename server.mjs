@@ -25,7 +25,8 @@ export function createServer({ onRequest } = {}) {
   return http.createServer(async (req, res) => {
     if (onRequest) {
       const started = Date.now();
-      const target = requestLabel(req.url);
+      let target = '[invalid path]';
+      try { target = requestLabel(req.url); } catch { /* avoid logging untrusted request text */ }
       let recorded = false;
       const record = status => {
         if (recorded) return;
