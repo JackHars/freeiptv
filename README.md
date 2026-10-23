@@ -43,10 +43,35 @@ npm start
 ```
 
 Open `http://localhost:8091` on the host computer. For another device on the
-same trusted LAN, use `http://<host-LAN-IP>:8091`. Open `/iptv` at the same
-address to see the generated Xtream username, password, and playlist URL. In
-your IPTV player, choose HLS / m3u8. See [IPTV.md](IPTV.md) for supported
-clients and endpoints.
+same trusted LAN, use `http://<host-LAN-IP>:8091`.
+
+## Add it to an IPTV app
+
+1. While the server is running, open `http://<host-LAN-IP>:8091/iptv` in a
+   browser. Use `http://localhost:8091/iptv` when browsing on the host itself.
+2. In your IPTV app, add a provider using **Xtream Codes** (also called
+   **Xtream API** or **username/password login**).
+3. Enter these connection details:
+
+   | Field | Value |
+   | --- | --- |
+   | Server / portal URL | `http://<host-LAN-IP>:8091` (no `/iptv` suffix) |
+   | Username | `cinejoy` on a fresh install |
+   | Password | The password shown at `/iptv` |
+   | Stream format, if asked | HLS / m3u8 |
+
+4. Save the provider and open **Movies**, **Series**, or **Live TV** in the app.
+
+There is **no shared default password**. The server creates a random one on
+first start and keeps it in `data/iptv.json`; the `/iptv` page shows the current
+username and password. They stay the same across restarts if you keep `data/`.
+If you changed the username, use the value shown on that page instead of
+`cinejoy`.
+
+If your app accepts **M3U** instead of Xtream Codes, copy the **Playlist URL**
+from `/iptv` into its M3U URL field. If it has an EPG or TV guide field, copy
+the **XMLTV guide URL** from the same page. Refresh the playlist in the app
+after changing the catalog. See [IPTV.md](IPTV.md) for more detail.
 
 `HOST` and `PORT` override the default listener (`0.0.0.0:8091`). For access
 only from the host computer, start with `HOST=127.0.0.1 npm start`. If you use
