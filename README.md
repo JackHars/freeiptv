@@ -2,7 +2,7 @@
 
 # FreeIPTV
 
-**Your local IPTV server, managed from the terminal.**
+**A local IPTV server, populated with media by manipulating existing illegal streaming services**
 
 Movies, series, and live sports through an Xtream-compatible API and M3U playlists.
 
