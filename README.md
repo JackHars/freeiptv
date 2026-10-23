@@ -3,6 +3,27 @@
 A locally hosted IPTV server with a browser interface, Xtream-compatible API,
 and M3U playlist. The UI and API run in one Node.js process on port 8091.
 
+## How it provides IPTV
+
+This server turns online catalogs and streams into a provider that IPTV apps can
+use on your local network:
+
+1. It gets movie and series listings, artwork, and episode details from TMDB.
+   It also imports scheduled sports events from its sports sources. These
+   listings become the Movies, Series, and Live TV sections in an IPTV app.
+2. It exposes those listings through an Xtream-compatible API, an M3U playlist,
+   and an XMLTV guide for sports. The `/iptv` page shows the server address,
+   generated login, and playlist and guide links to enter in your app.
+3. When you play something, the server resolves an available HLS stream from
+   the upstream source. It rewrites the playlist so video segments, keys, and
+   supported subtitles pass through the local server to your IPTV player.
+
+The repository contains no video library or permanent TV channels. A title in
+the catalog does not guarantee a playable stream, and a scheduled sports event
+needs its source to publish a supported broadcast link. Playback depends on the
+upstream services and your internet connection. The host computer must stay
+running while devices use the provider.
+
 ## Requirements
 
 - Node.js 24 or newer, including npm and the built-in SQLite module
