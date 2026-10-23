@@ -45,9 +45,6 @@ above a live request log.
 - Internet access for metadata and streams
 - An IPTV player that supports Xtream Codes or M3U
 
-There are no npm runtime dependencies. [`requirements.txt`](requirements.txt)
-records the runtime requirements; it contains no Python packages.
-
 ### Install and run
 
 Clone the repository using a GitHub account with access:
