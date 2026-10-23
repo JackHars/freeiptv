@@ -14,7 +14,8 @@ try { existingLogin = JSON.parse(await readFile(new URL('./data/iptv.json', impo
 catch (error) { if (error.code !== 'ENOENT') throw error; }
 
 let newLogin = null;
-if (process.stdin.isTTY && process.stdout.isTTY) {
+const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+if (interactive) {
   try { newLogin = await promptForLogin({ firstRun: !existingLogin, current: existingLogin }); }
   catch (error) { console.error(error.message); process.exit(1); }
 } else if (!existingLogin) {
@@ -33,14 +34,21 @@ const host = process.env.HOST || config.host || '0.0.0.0';
 const server = createServer();
 server.on('error', error => { console.error(error.message); process.exit(1); });
 server.listen(port, host, () => {
-  console.log(`Cinejoy UI + API: http://localhost:${port}`);
-  for (const addresses of Object.values(networkInterfaces())) {
-    for (const address of addresses || []) {
-      if (address.family === 'IPv4' && !address.internal) console.log(`LAN: http://${address.address}:${port}`);
-    }
+  const actualPort = server.address().port;
+  const lanAddresses = Object.values(networkInterfaces()).flatMap(addresses => addresses || [])
+    .filter(address => address.family === 'IPv4' && !address.internal && !address.address.startsWith('169.254.'));
+  const address = ['127.0.0.1', 'localhost'].includes(host) ? '127.0.0.1'
+    : host !== '0.0.0.0' ? host : lanAddresses[0]?.address || '127.0.0.1';
+  const base = `http://${address}:${actualPort}`;
+  console.log(`IPTV server: ${base}`);
+  if (interactive) {
+    const login = newLogin || existingLogin;
+    const query = new URLSearchParams({ username: login.username, password: login.password });
+    console.log(`Username: ${login.username}`);
+    console.log(`Password: ${login.password}`);
+    console.log(`M3U playlist: ${base}/get.php?${query}&type=m3u_plus&output=m3u8`);
+    console.log(`XMLTV guide: ${base}/xmltv.php?${query}`);
   }
-  console.log('API runs in this process. Documentation: /docs');
-  console.log('IPTV setup and account details: /iptv');
   warmIPTV();
 });
 

@@ -127,7 +127,6 @@ function origin(req) {
   if (!host || /[\s/\\@?#]/.test(host)) throw new HttpError(400, 'Invalid Host header.');
   return new URL(`http://${host}`).origin;
 }
-function credentials() { return new URLSearchParams({ username: settings.username, password: settings.password }); }
 function streamURL(base, kind, id) {
   return `${base}/${kind}/${encodeURIComponent(settings.username)}/${encodeURIComponent(settings.password)}/${id}.m3u8`;
 }
@@ -397,7 +396,7 @@ async function playerAPI(params, base) {
 export async function handleIPTV(req, res) {
   const url = new URL(req.url, 'http://local');
   const path = url.pathname;
-  const relevant = ['/player_api.php', '/get.php', '/xmltv.php', '/iptv/setup', '/iptv/titles', '/iptv/refresh', '/iptv/library', '/iptv/sports/refresh'].includes(path) || path.startsWith('/iptv/media/') || path.startsWith('/iptv/subtitles/') || /^\/(movie|series|live)\//.test(path);
+  const relevant = ['/player_api.php', '/get.php', '/xmltv.php', '/iptv/titles', '/iptv/refresh', '/iptv/library', '/iptv/sports/refresh'].includes(path) || path.startsWith('/iptv/media/') || path.startsWith('/iptv/subtitles/') || /^\/(movie|series|live)\//.test(path);
   if (!relevant) return false;
   // Keep import diagnostics without recording credential-bearing URLs or bodies.
   let resultCount;
@@ -420,14 +419,6 @@ export async function handleIPTV(req, res) {
     const base = origin(req);
     const params = url.searchParams;
     if (req.method === 'POST' && path === '/player_api.php') for (const [key, value] of Object.entries(await requestBody(req))) params.set(key, value);
-    if (path === '/iptv/setup' && req.method === 'GET') {
-      manageOrigin(req);
-      titleIndex.warm();
-      sports.ensure().catch(error => console.warn('IPTV sports:', error.message));
-      const query = credentials();
-      reply(req, res, 200, { name: 'Cinejoy', server: base, username: settings.username, password: settings.password, format: 'HLS / m3u8', playlist: `${base}/get.php?${query}&type=m3u_plus&output=m3u8`, sportsPlaylist: `${base}/get.php?${query}&type=m3u_plus&output=m3u8&content=live`, epg: `${base}/xmltv.php?${query}`, sports: sports.status(), movies: catalog.movies.length, series: catalog.series.length, updatedAt: catalog.updatedAt, refreshing: Boolean(refreshPromise), progress: refreshProgress, errors: catalog.errors, catalogPages: options.catalogPages, titleIndex: titleIndex.status(), pinned: settings.pinned });
-      return true;
-    }
     if (path === '/iptv/titles' && req.method === 'GET') {
       manageOrigin(req);
       const query = (params.get('q') || '').trim();

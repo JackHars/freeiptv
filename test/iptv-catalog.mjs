@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 // Exercise the real HTTP responses against the Xtream movie field contract.
 // The reference server returns a numeric rating and an integer five-star score:
 // https://github.com/gtaman92/XtreamCodesExtendAPI/blob/master/player_api.php
-const base = process.env.UI_BASE || 'http://127.0.0.1:8091';
-const setup = await fetch(`${base}/iptv/setup`).then(response => response.json());
+const base = process.env.IPTV_BASE || process.env.UI_BASE || 'http://127.0.0.1:8091';
+const saved = process.env.IPTV_USERNAME && process.env.IPTV_PASSWORD ? null
+  : JSON.parse(await readFile(new URL('../data/iptv.json', import.meta.url), 'utf8'));
+const login = saved || { username: process.env.IPTV_USERNAME, password: process.env.IPTV_PASSWORD };
 async function api(action, params = {}, post = false) {
-  const query = new URLSearchParams({ username: setup.username, password: setup.password, action, ...params });
+  const query = new URLSearchParams({ username: login.username, password: login.password, action, ...params });
   const response = await fetch(`${base}/player_api.php${post ? '' : `?${query}`}`, post
     ? { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: query }
     : {});
@@ -32,7 +35,6 @@ function validateMovie(movie, categoryIDs) {
 const [movies, categories, series] = await Promise.all([
   api('get_vod_streams'), api('get_vod_categories'), api('get_series'),
 ]);
-assert.equal(movies.length, setup.movies);
 assert.ok(movies.length > 0);
 assert.equal(new Set(movies.map(movie => movie.stream_id)).size, movies.length);
 const categoryIDs = new Set(categories.map(category => category.category_id));
@@ -47,7 +49,6 @@ const details = await api('get_vod_info', { vod_id: movies[0].stream_id });
 validateMovie(details.movie_data, categoryIDs);
 assert.equal(details.movie_data.stream_id, movies[0].stream_id);
 assert.equal(details.info.name, movies[0].name);
-assert.equal(series.length, setup.series);
 assert.ok(series.length > 0);
 assert.equal((await api('')).user_info.auth, 1);
 console.log(`Catalog contract passed: ${movies.length} movies, ${categories.length} movie categories, ${series.length} series; GET/POST imports and movie details.`);

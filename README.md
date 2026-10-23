@@ -1,7 +1,7 @@
 # freeiptv
 
-A locally hosted IPTV server with a browser interface, Xtream-compatible API,
-and M3U playlist. The UI and API run in one Node.js process on port 8091.
+A locally hosted IPTV server with a terminal setup screen, Xtream-compatible
+API, and M3U playlist. It runs in one Node.js process on port 8091.
 
 ## How it provides IPTV
 
@@ -34,7 +34,7 @@ This server acts as a local IPTV adapter for external web players:
    with the source page's `Referer`, `Origin`, and browser-style User-Agent.
    A scheduled event without a published HLS link remains unplayable.
 
-The `/iptv` page shows the local server address, configured login, and playlist
+The terminal shows the local server address, configured login, and playlist
 and guide links to enter in your IPTV app.
 
 The repository contains no video library or permanent TV channels. A title in
@@ -48,9 +48,9 @@ running while devices use the provider.
 - Node.js 24 or newer, including npm and the built-in SQLite module
 - Internet access for the upstream metadata and streams
 
-This is a Node.js project. [`package-lock.json`](package-lock.json) pins the
-installable dependency; [`requirements.txt`](requirements.txt) records the
-runtime requirements and contains no Python packages.
+This is a Node.js project with no npm runtime dependencies.
+[`requirements.txt`](requirements.txt) records the runtime requirements and
+contains no Python packages.
 
 ## Set up
 
@@ -69,33 +69,33 @@ update the account in your IPTV apps. For a start without an interactive
 terminal, set up the login once in a terminal first; later starts reuse the
 saved credentials.
 
-Open `http://localhost:8091` on the host computer. For another device on the
-same trusted LAN, use `http://<host-LAN-IP>:8091`.
+After startup, the terminal prints the IPTV server address, username,
+password, M3U playlist URL, and XMLTV guide URL. Keep that terminal open while
+using the service. There is no browser interface.
 
 ## Add it to an IPTV app
 
-1. While the server is running, open `http://<host-LAN-IP>:8091/iptv` in a
-   browser. Use `http://localhost:8091/iptv` when browsing on the host itself.
+1. Start the server and read the connection details printed in its terminal.
 2. In your IPTV app, add a provider using **Xtream Codes** (also called
    **Xtream API** or **username/password login**).
 3. Enter these connection details:
 
    | Field | Value |
    | --- | --- |
-   | Server / portal URL | `http://<host-LAN-IP>:8091` (no `/iptv` suffix) |
-   | Username | The username you entered at startup (also shown at `/iptv`) |
-   | Password | The password you entered at startup (also shown at `/iptv`) |
+   | Server / portal URL | The **IPTV server** address printed in the terminal, such as `http://192.168.1.100:8091` |
+   | Username | The username printed in the terminal |
+   | Password | The password printed in the terminal |
    | Stream format, if asked | HLS / m3u8 |
 
 4. Save the provider and open **Movies**, **Series**, or **Live TV** in the app.
 
 There are **no default credentials** for a fresh install. The server saves
-your chosen login in `data/iptv.json`; the `/iptv` page shows the current
-values. They stay the same across restarts if you keep `data/`.
+your chosen login in `data/iptv.json`. They stay the same across restarts if
+you keep `data/`.
 
-If your app accepts **M3U** instead of Xtream Codes, copy the **Playlist URL**
-from `/iptv` into its M3U URL field. If it has an EPG or TV guide field, copy
-the **XMLTV guide URL** from the same page. Refresh the playlist in the app
+If your app accepts **M3U** instead of Xtream Codes, copy the **M3U playlist**
+URL printed in the terminal into its M3U URL field. If it has an EPG or TV
+guide field, copy the **XMLTV guide** URL. Refresh the playlist in the app
 after changing the catalog. See [IPTV.md](IPTV.md) for more detail.
 
 `HOST` and `PORT` override the default listener (`0.0.0.0:8091`). For access
@@ -114,5 +114,4 @@ npm run check
 curl http://localhost:8091/health
 ```
 
-The local setup page reveals the IPTV credentials to anyone who can reach it.
 Keep this server on a trusted LAN; it is not configured for public access.

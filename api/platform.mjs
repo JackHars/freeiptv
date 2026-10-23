@@ -284,58 +284,6 @@ async function resolve(tmdbId, kind, season = null, episode = null, server = nul
 
 // ---------------------------------------------------------------- http
 
-const DOCS_HTML = `<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Cinejoy Platform — API</title>
-<style>
-:root{color-scheme:dark}
-body{margin:0;background:#0b0d12;color:#e8ecf3;font:14px/1.6 system-ui,sans-serif;padding:24px;max-width:900px;margin:0 auto}
-h1{font-size:20px} h1 span{color:#8b7cff}
-h2{font-size:15px;margin-top:26px;color:#9aa3b8;text-transform:uppercase;letter-spacing:.08em}
-table{border-collapse:collapse;width:100%}
-td,th{border:1px solid #1c2233;padding:6px 10px;text-align:left;vertical-align:top;font-size:13px}
-td:first-child{white-space:nowrap;font-family:ui-monospace,monospace;color:#8b7cff}
-code{background:#141824;border:1px solid #262d40;border-radius:5px;padding:1px 6px;font-size:12.5px}
-pre{background:#141824;border:1px solid #262d40;border-radius:8px;padding:12px;overflow:auto;font-size:12.5px}
-a{color:#8b7cff}
-</style></head><body>
-<h1><span>●</span> Cinejoy Platform <code style="font-size:12px">API v1</code></h1>
-<p>Anonymous streaming API over cinejoy.pk's <b>lumen-gate</b> backend + the TMDB catalog
-their own frontend uses. No account, no token. Every title is identified by its
-<b>TMDB id</b>; playback resolves to a live master <code>.m3u8</code> with per-server
-failover (<code>Nebula → Lisbon → Solara → Athens</code>). The web app is at <a href="/">/</a>.</p>
-<h2>Endpoints</h2>
-<table>
-<tr><th>Route</th><th>Description</th></tr>
-<tr><td>GET /servers</td><td>Live lumen-gate servers (name, status, 4k flag).</td></tr>
-<tr><td>GET /search?q=&amp;page=</td><td>Search movies+TV by title. <code>q</code> required.</td></tr>
-<tr><td>GET /browse?board=&amp;type=&amp;page=</td><td><code>board</code>: trending|popular|top_rated|on_the_air (tv)|now_playing (movie). <code>type</code>: tv|movie.</td></tr>
-<tr><td>GET /title?tmdb=&amp;type=</td><td>Metadata: title, year, overview, rating; <code>seasons[]</code> for TV.</td></tr>
-<tr><td>GET /episodes?tmdb=&amp;season=</td><td>Episode list for a season.</td></tr>
-<tr><td>GET /images?tmdb=&amp;type=</td><td>TMDB backdrops + poster URLs.</td></tr>
-<tr><td>GET /resolve?tmdb=&amp;kind=movie|series&amp;s=&amp;e=&amp;server=&amp;fresh=1</td><td><b>Play</b>. Playable master playlist (direct + proxied), parsed variants, chosen server, tried list. Cached 5 min unless <code>fresh=1</code>.</td></tr>
-<tr><td>POST /resolve</td><td>JSON body: <code>{"tmdb":550,"kind":"movie"}</code> or <code>{"tmdb":1399,"kind":"series","s":1,"e":1}</code>.</td></tr>
-<tr><td>GET /master?tmdb=&amp;kind=&amp;s=&amp;e=</td><td>Synthesized master playlist, all variant URIs proxied — feed straight to hls.js (ABR + quality switching).</td></tr>
-<tr><td>GET /watch?tmdb=&amp;kind=&amp;s=&amp;e=&amp;v=</td><td>Single variant media playlist, proxied+rewritten (v: best|1080p|720p|480p|360p).</td></tr>
-<tr><td>GET /proxy?u=</td><td>Generic HLS proxy: rewrites playlist URIs, streams segments. <code>u</code> = urlencoded upstream URL.</td></tr>
-<tr><td>GET /health</td><td>Liveness + WASM status.</td></tr>
-</table>
-<h2>Examples</h2>
-<pre># search + pick a title
-curl 'http://localhost:8091/search?q=breaking+bad'
-
-# play a movie (VLC / mpv / hls.js)
-curl 'http://localhost:8091/resolve?tmdb=550&amp;kind=movie'
-mpv 'http://localhost:8091/watch?tmdb=550&amp;kind=movie'
-
-# play an episode
-curl 'http://localhost:8091/resolve?tmdb=1399&amp;kind=series&amp;s=1&amp;e=1'
-mpv 'http://localhost:8091/watch?tmdb=1399&amp;kind=series&amp;s=1&amp;e=1'</pre>
-<h2>Clients</h2>
-<p><code>client.mjs</code> / <code>client.py</code> from the API package target these same
-routes. Full protocol notes in <code>README.md</code>.</p>
-</body></html>`;
-
 const START = Date.now();
 let wasmReady = false;
 
@@ -398,16 +346,10 @@ export async function handleApiRequest(req, res) {
 
   try {
     if (p === '/api') return sendJson(res, 200, {
-      name: 'Cinejoy Platform API', version: '1', docs: '/docs', app: '/',
+      name: 'Cinejoy Platform API', version: '1',
       endpoints: ['/servers', '/search', '/browse', '/title', '/episodes',
-                  '/images', '/resolve', '/master', '/watch', '/proxy', '/health', '/docs'],
+                  '/images', '/resolve', '/master', '/watch', '/proxy', '/health'],
     });
-
-    if (p === '/docs') {
-      const b = Buffer.from(DOCS_HTML);
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': b.length });
-      return res.end(b);
-    }
 
     if (p === '/health') return sendJson(res, 200, {
       ok: true, wasm: wasmReady,
@@ -584,9 +526,7 @@ export async function handleApiRequest(req, res) {
       return res.end(data);
     }
 
-    if (p === '/favicon.ico') { res.writeHead(204); return res.end(); }
-
-    return sendErr(res, 404, 'unknown route — see /docs');
+    return sendErr(res, 404, 'unknown route');
   } catch (e) {
     if (e instanceof ResolutionError) return sendErr(res, e.status, e.msg);
     if (/numeric|required|requires|must be/.test(e.message)) return sendErr(res, 400, e.message);
