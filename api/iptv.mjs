@@ -398,18 +398,6 @@ export async function handleIPTV(req, res) {
   const path = url.pathname;
   const relevant = ['/player_api.php', '/get.php', '/xmltv.php', '/iptv/titles', '/iptv/refresh', '/iptv/library', '/iptv/sports/refresh'].includes(path) || path.startsWith('/iptv/media/') || path.startsWith('/iptv/subtitles/') || /^\/(movie|series|live)\//.test(path);
   if (!relevant) return false;
-  // Keep import diagnostics without recording credential-bearing URLs or bodies.
-  let resultCount;
-  if (path === '/player_api.php') {
-    const started = Date.now();
-    res.once('finish', () => console.info('IPTV API', JSON.stringify({
-      method: req.method, action: (url.searchParams.get('action') || 'login').replace(/[^a-z0-9_]/gi, '').slice(0, 48),
-      category: (url.searchParams.get('category_id') || '').replace(/[^a-z0-9_-]/gi, '').slice(0, 24),
-      status: res.statusCode, count: resultCount, ms: Date.now() - started,
-      client: req.socket.remoteAddress,
-      agent: text(req.headers['user-agent']).replaceAll(settings?.password || '\0', '[redacted]').slice(0, 160),
-    })));
-  }
   try {
     await initializeIPTV();
     if (req.method === 'OPTIONS') {
@@ -472,7 +460,6 @@ export async function handleIPTV(req, res) {
     requireAuth(params);
     if (path === '/player_api.php') {
       const result = await playerAPI(params, base);
-      if (Array.isArray(result)) resultCount = result.length;
       reply(req, res, 200, result);
     }
     else if (path === '/get.php') reply(req, res, 200, await buildPlaylist(params, base), 'audio/x-mpegurl; charset=utf-8');

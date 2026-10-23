@@ -3,8 +3,9 @@
 Run `npm start` in a terminal. On the first launch, choose a username and
 password in the terminal setup screen. On later interactive launches, enter
 new values or press Enter to keep the saved ones. The server starts after
-setup and prints the Xtream server address, login, M3U playlist URL, and
-XMLTV guide URL in the terminal. There is no browser interface.
+setup and shows the Xtream server address, login, M3U playlist URLs, and
+XMLTV guide URL in a fixed terminal panel. Incoming requests scroll below it.
+There is no browser interface.
 
 ## Connect an IPTV player
 

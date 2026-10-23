@@ -25,10 +25,11 @@ test('sports Xtream import, EPG, live M3U, auth and live HLS proxy preserve qual
   const event = { host: 'sports.test', sport: 'nba', slug: 'nba/2026-10-22/test-match', title: 'Test Match & Teams', starts_at: now - 60, ends_at: now + 3600, has_payload: true, stream_url: remote + '/master.m3u8', pageURL: referer };
   const source = { async list(sport) { return { events: sport === 'nba' ? [event, { ...event, slug: 'nba/2026-10-22/upcoming-match', title: 'Upcoming Match', has_payload: false, stream_url: null, starts_at: now + 1800 }] : [], errors: [] }; }, async resolve(e) { return e; }, async hls(e) { return { url: e.stream_url, headers: { referer, origin } }; } };
   let server;
+  const requests = [];
   try {
     await initializeIPTV({ sportsDirectory: directory, sportsSource: source });
     const settings = JSON.parse(await readFile(new URL('../data/iptv.json', import.meta.url)));
-    server = createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    server = createServer({ onRequest: event => requests.push(event) }); server.listen(0, '127.0.0.1'); await once(server, 'listening');
     const base = `http://127.0.0.1:${server.address().port}`;
     for (const path of ['/', '/iptv', '/docs', '/iptv/setup', '/app.js']) {
       assert.equal((await fetch(base + path)).status, 404, `${path} should not serve a browser UI`);
@@ -54,6 +55,9 @@ test('sports Xtream import, EPG, live M3U, auth and live HLS proxy preserve qual
     assert.equal((await fetch(rows[0].direct_source.replace(encodeURIComponent(settings.password), 'wrong'))).status, 401);
     r = await fetch(rows[1].direct_source); assert.equal(r.status, 503); assert.equal(r.headers.get('retry-after'), '30'); assert.match((await r.json()).error, /not started/);
     assert.equal((await fetch(rows[0].direct_source.replace('.m3u8', '.ts'))).status, 415);
+    assert.ok(requests.some(request => request.target === '/player_api.php?action=get_live_streams' && request.status === 200));
+    assert.ok(requests.some(request => request.target.startsWith('/live/[login]/')));
+    assert.ok(requests.every(request => !request.target.includes(settings.password)));
   } finally {
     server?.closeAllConnections(); if (server) await new Promise(resolve => server.close(resolve));
     upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve));

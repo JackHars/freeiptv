@@ -5,14 +5,37 @@ import { handleIPTV } from './api/iptv.mjs';
 
 const routes = new Set(['api', 'health', 'servers', 'search', 'browse', 'title', 'episodes', 'images', 'resolve', 'master', 'watch', 'proxy']);
 
+export function requestLabel(target) {
+  const url = new URL(target, 'http://local');
+  const path = url.pathname
+    .replace(/^\/(movie|series|live)\/[^/]+\/[^/]+\//, '/$1/[login]/')
+    .replace(/^\/iptv\/(media|subtitles)\/[^/]+\//, '/iptv/$1/[signed]/');
+  const action = url.searchParams.get('action');
+  return action && path === '/player_api.php'
+    ? `${path}?action=${action.replace(/[^a-z0-9_]/gi, '').slice(0, 40)}` : path;
+}
+
 function json(res, status, data) {
   if (res.destroyed) return;
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(data));
 }
 
-export function createServer() {
+export function createServer({ onRequest } = {}) {
   return http.createServer(async (req, res) => {
+    if (onRequest) {
+      const started = Date.now();
+      const target = requestLabel(req.url);
+      let recorded = false;
+      const record = status => {
+        if (recorded) return;
+        recorded = true;
+        try { onRequest({ method: req.method, target, status, client: req.socket.remoteAddress, durationMs: Date.now() - started }); }
+        catch { /* logging must not interrupt a request */ }
+      };
+      res.once('finish', () => record(res.statusCode));
+      res.once('close', () => { if (!res.writableFinished) record('closed'); });
+    }
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     try {

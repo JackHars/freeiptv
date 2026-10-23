@@ -69,9 +69,11 @@ update the account in your IPTV apps. For a start without an interactive
 terminal, set up the login once in a terminal first; later starts reuse the
 saved credentials.
 
-After startup, the terminal prints the IPTV server address, username,
-password, M3U playlist URL, and XMLTV guide URL. Keep that terminal open while
-using the service. There is no browser interface.
+After startup, a fixed terminal panel shows the IPTV server address, username,
+password, M3U playlist URLs, and XMLTV guide URL. Incoming requests and server
+activity scroll beneath the panel. Request logs omit credentials and signed
+media tokens. Keep that terminal open while using the service; press Ctrl+C
+to stop it. There is no browser interface.
 
 ## Add it to an IPTV app
 
