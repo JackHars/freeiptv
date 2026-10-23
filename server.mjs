@@ -2,13 +2,10 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { handleApiRequest, initializeEngine } from './api/platform.mjs';
-import { handleIPTV, initializeIPTV, warmIPTV } from './api/iptv.mjs';
+import { handleApiRequest } from './api/platform.mjs';
+import { handleIPTV } from './api/iptv.mjs';
 
-const port = Number(process.env.PORT || 8091);
-const host = process.env.HOST || '0.0.0.0';
 const root = new URL('./public/', import.meta.url);
 const routes = new Set(['api', 'docs', 'health', 'servers', 'search', 'browse', 'title', 'episodes', 'images', 'resolve', 'master', 'watch', 'proxy']);
 const retiredBridgeBases = new Set(['http://127.0.0.1:18090', 'http://localhost:18090']);
@@ -147,15 +144,8 @@ export function createServer() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  await initializeEngine();
-  await initializeIPTV();
-  warmIPTV();
-  const server = createServer();
-  server.listen(port, host, () => {
-    console.log(`Cinejoy UI: http://localhost:${port}`);
-    for (const addresses of Object.values(networkInterfaces())) {
-      for (const address of addresses || []) if (address.family === 'IPv4' && !address.internal) console.log(`LAN: http://${address.address}:${port}`);
-    }
-    console.log('Built-in API: same port. Documentation: /docs');
+  import('./start.mjs').catch(error => {
+    console.error(error);
+    process.exitCode = 1;
   });
 }

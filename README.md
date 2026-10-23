@@ -13,7 +13,7 @@ use on your local network:
    listings become the Movies, Series, and Live TV sections in an IPTV app.
 2. It exposes those listings through an Xtream-compatible API, an M3U playlist,
    and an XMLTV guide for sports. The `/iptv` page shows the server address,
-   generated login, and playlist and guide links to enter in your app.
+   configured login, and playlist and guide links to enter in your app.
 3. When you play something, the server resolves an available HLS stream from
    the upstream source. It rewrites the playlist so video segments, keys, and
    supported subtitles pass through the local server to your IPTV player.
@@ -42,6 +42,14 @@ npm ci
 npm start
 ```
 
+`npm start` opens a terminal login screen **before the server starts**. On a
+fresh install, enter a username and password, then confirm the password. The
+password is hidden as you type. On later interactive starts, press Enter at a
+prompt to keep that value or type a replacement. If you change the login,
+update the account in your IPTV apps. For a start without an interactive
+terminal, set up the login once in a terminal first; later starts reuse the
+saved credentials.
+
 Open `http://localhost:8091` on the host computer. For another device on the
 same trusted LAN, use `http://<host-LAN-IP>:8091`.
 
@@ -56,17 +64,15 @@ same trusted LAN, use `http://<host-LAN-IP>:8091`.
    | Field | Value |
    | --- | --- |
    | Server / portal URL | `http://<host-LAN-IP>:8091` (no `/iptv` suffix) |
-   | Username | `cinejoy` on a fresh install |
-   | Password | The password shown at `/iptv` |
+   | Username | The username you entered at startup (also shown at `/iptv`) |
+   | Password | The password you entered at startup (also shown at `/iptv`) |
    | Stream format, if asked | HLS / m3u8 |
 
 4. Save the provider and open **Movies**, **Series**, or **Live TV** in the app.
 
-There is **no shared default password**. The server creates a random one on
-first start and keeps it in `data/iptv.json`; the `/iptv` page shows the current
-username and password. They stay the same across restarts if you keep `data/`.
-If you changed the username, use the value shown on that page instead of
-`cinejoy`.
+There are **no default credentials** for a fresh install. The server saves
+your chosen login in `data/iptv.json`; the `/iptv` page shows the current
+values. They stay the same across restarts if you keep `data/`.
 
 If your app accepts **M3U** instead of Xtream Codes, copy the **Playlist URL**
 from `/iptv` into its M3U URL field. If it has an EPG or TV guide field, copy

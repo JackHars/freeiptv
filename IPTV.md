@@ -1,14 +1,14 @@
 # Cinejoy IPTV
 
-Open **http://localhost:8091/iptv** on the host, or use its LAN address from another device, for the current account details and playlist link.
+Run `npm start` in a terminal and enter a username and password when prompted. On later interactive starts, press Enter to keep either value or type a replacement. The server starts after you finish the login screen. Open **http://localhost:8091/iptv** on the host, or use its LAN address from another device, for the current account details and playlist link.
 
 ## Add the provider to an IPTV app
 
 Select **Xtream Codes** (sometimes called Xtream API or username/password login):
 
 - Server / portal: `http://192.168.1.100:8091` (replace with your host's LAN address)
-- Username: `cinejoy`
-- Password: shown on the IPTV setup page
+- Username: the one you entered at startup (also shown on the IPTV setup page)
+- Password: the one you entered at startup (also shown on the IPTV setup page)
 - Stream format: **HLS / m3u8**
 - Account name: any name, such as Cinejoy Home
 
@@ -83,9 +83,9 @@ No separate IPTV service or Docker container is needed; this adapter runs in the
 
 ## Local data
 
-`data/iptv.json` stores the generated account, signing secret, and pinned titles. `data/catalog.json` stores the detailed IPTV catalog. `data/titles.sqlite` stores the bulk title index and its update metadata. `data/episodes.json` stores episode mappings. `data/sports.json` stores sports event metadata, persistent IDs, refresh status, and errors. Event records older than seven days are pruned; allocated IDs are not reused. Keep these files to preserve account details, title caches, and cached episode links after restarts. They are excluded from Git; a new installation generates its own account and builds fresh caches. No video files are stored by either catalog. Subtitle lists and selected subtitle cues are cached in memory for up to an hour, with bounded entries; they are fetched again after a restart. Subtitle files are fetched only when their track is selected. Reading the first 64 KiB of a video segment establishes subtitle timing; this is not a persistent video cache.
+`data/iptv.json` stores the chosen account, signing secret, and pinned titles. `data/catalog.json` stores the detailed IPTV catalog. `data/titles.sqlite` stores the bulk title index and its update metadata. `data/episodes.json` stores episode mappings. `data/sports.json` stores sports event metadata, persistent IDs, refresh status, and errors. Event records older than seven days are pruned; allocated IDs are not reused. Keep these files to preserve account details, title caches, and cached episode links after restarts. They are excluded from Git; a new installation asks you to choose its account and builds fresh caches. No video files are stored by either catalog. Subtitle lists and selected subtitle cues are cached in memory for up to an hour, with bounded entries; they are fetched again after a restart. Subtitle files are fetched only when their track is selected. Reading the first 64 KiB of a video segment establishes subtitle timing; this is not a persistent video cache.
 
-To change the login, stop Cinejoy, edit `username` and `password` in `data/iptv.json`, and start it again. Use URL-safe letters and numbers. Refresh the account in your player afterwards.
+To change the login, restart with `npm start` in a terminal and enter the new username or password. Usernames must have 3–32 letters, numbers, underscores, or hyphens. Passwords must have 8–128 printable characters without spaces. Update the account in your player afterwards.
 
 The existing cinema and REST API keep their original local access model. The IPTV username/password checks apply to the IPTV client endpoints. The setup page is available to people who can access the LAN UI.
 

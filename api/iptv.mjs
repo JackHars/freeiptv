@@ -71,6 +71,14 @@ export function initializeIPTV(config = {}) {
   return initialization;
 }
 
+export async function setIPTVCredentials(username, password) {
+  await initializeIPTV();
+  if (!/^[A-Za-z0-9_-]{3,32}$/.test(username)) throw new Error('Username must be 3–32 letters, numbers, underscores, or hyphens.');
+  if (!/^[\x21-\x7e]{8,128}$/.test(password)) throw new Error('Password must be 8–128 printable characters without spaces.');
+  await saveJSON('iptv.json', { ...settings, username, password });
+  settings = { ...settings, username, password };
+}
+
 async function pool(items, operation, concurrency = 4) {
   const result = new Array(items.length); let next = 0;
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
