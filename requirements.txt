@@ -1,0 +1,3 @@
+# This application uses Node.js, not Python. There are no pip dependencies.
+# Runtime: Node.js >= 24, with npm and built-in node:sqlite.
+# Install JavaScript dependencies with: npm ci
