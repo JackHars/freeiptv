@@ -5,18 +5,37 @@ and M3U playlist. The UI and API run in one Node.js process on port 8091.
 
 ## How it provides IPTV
 
-This server turns online catalogs and streams into a provider that IPTV apps can
-use on your local network:
+This server acts as a local IPTV adapter for external web players:
 
-1. It gets movie and series listings, artwork, and episode details from TMDB.
-   It also imports scheduled sports events from its sports sources. These
-   listings become the Movies, Series, and Live TV sections in an IPTV app.
-2. It exposes those listings through an Xtream-compatible API, an M3U playlist,
-   and an XMLTV guide for sports. The `/iptv` page shows the server address,
-   configured login, and playlist and guide links to enter in your app.
-3. When you play something, the server resolves an available HLS stream from
-   the upstream source. It rewrites the playlist so video segments, keys, and
-   supported subtitles pass through the local server to your IPTV player.
+1. **Build the listings.** It gets movie and series names, artwork, and
+   episode details from TMDB. Separately, it reads sports event pages for
+   schedules. It presents those listings to IPTV apps through an
+   Xtream-compatible API, an M3U playlist, and a sports XMLTV guide. TMDB
+   supplies metadata, not video.
+2. **Resolve a movie or episode when you press Play.** The server sends the
+   title's TMDB ID (plus season and episode numbers for TV) to Cinejoy's
+   `api.wing.st` playback backend. It uses the bundled `api/crush.wasm` helper
+   to encode the request in that site's `lumen-gate` format, then decrypts the
+   reply. It tries the backend's video mirrors in order until one returns an
+   HLS `.m3u8` playlist. A listed title can still have no playable source.
+3. **Make media requests like the web player.** For those movie and episode
+   streams, outgoing requests carry a browser-style User-Agent and the
+   `Origin` and `Referer` of `cinejoy.pk`. This reproduces the request headers
+   used by its web player; it does not grant access to a stream the source has
+   not published.
+4. **Relay playback locally.** The server fetches the HLS playlist, selects
+   the highest advertised video quality, and replaces remote playlist,
+   segment, and key URLs with signed local URLs. Your IPTV app requests those
+   local URLs; the server forwards the requests upstream with the needed
+   headers and streams the returned bytes back. It can also attach supported
+   subtitle tracks. It does not store a video library.
+5. **Handle sports separately.** The sports adapter reads event pages, follows
+   published iframe or player links to an HLS feed, and forwards that feed
+   with the source page's `Referer`, `Origin`, and browser-style User-Agent.
+   A scheduled event without a published HLS link remains unplayable.
+
+The `/iptv` page shows the local server address, configured login, and playlist
+and guide links to enter in your IPTV app.
 
 The repository contains no video library or permanent TV channels. A title in
 the catalog does not guarantee a playable stream, and a scheduled sports event
