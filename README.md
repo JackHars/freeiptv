@@ -1,58 +1,56 @@
-# freeiptv
+<div align="center">
 
-A locally hosted IPTV server with a terminal setup screen, Xtream-compatible
-API, and M3U playlist. It runs in one Node.js process on port 8091.
+# FreeIPTV
 
-## How it provides IPTV
+**Your local IPTV server, managed from the terminal.**
 
-This server acts as a local IPTV adapter for external web players:
+Movies, series, and live sports through an Xtream-compatible API and M3U playlists.
 
-1. **Build the listings.** It gets movie and series names, artwork, and
-   episode details from TMDB. Separately, it reads sports event pages for
-   schedules. It presents those listings to IPTV apps through an
-   Xtream-compatible API, an M3U playlist, and a sports XMLTV guide. TMDB
-   supplies metadata, not video.
-2. **Resolve a movie or episode when you press Play.** The server sends the
-   title's TMDB ID (plus season and episode numbers for TV) to Cinejoy's
-   `api.wing.st` playback backend. It uses the bundled `api/crush.wasm` helper
-   to encode the request in that site's `lumen-gate` format, then decrypts the
-   reply. It tries the backend's video mirrors in order until one returns an
-   HLS `.m3u8` playlist. A listed title can still have no playable source.
-3. **Make media requests like the web player.** For those movie and episode
-   streams, outgoing requests carry a browser-style User-Agent and the
-   `Origin` and `Referer` of `cinejoy.pk`. This reproduces the request headers
-   used by its web player; it does not grant access to a stream the source has
-   not published.
-4. **Relay playback locally.** The server fetches the HLS playlist, selects
-   the highest advertised video quality, and replaces remote playlist,
-   segment, and key URLs with signed local URLs. Your IPTV app requests those
-   local URLs; the server forwards the requests upstream with the needed
-   headers and streams the returned bytes back. It can also attach supported
-   subtitle tracks. It does not store a video library.
-5. **Handle sports separately.** The sports adapter reads event pages, follows
-   published iframe or player links to an HLS feed, and forwards that feed
-   with the source page's `Referer`, `Origin`, and browser-style User-Agent.
-   A scheduled event without a published HLS link remains unplayable.
+![Node.js 24+](https://img.shields.io/badge/Node.js-24%2B-339933?logo=nodedotjs&logoColor=white)
+![Interface: Terminal](https://img.shields.io/badge/Interface-Terminal-2563eb)
+![Streaming: HLS](https://img.shields.io/badge/Streaming-HLS-7c3aed)
+![Runtime dependencies: 0](https://img.shields.io/badge/Runtime_dependencies-0-475569)
 
-The terminal shows the local server address, configured login, and playlist
-and guide links to enter in your IPTV app.
+[Quick start](#quick-start) · [Connect your player](#connect-your-player) · [How it works](#how-it-works) · [API reference](IPTV.md)
 
-The repository contains no video library or permanent TV channels. A title in
-the catalog does not guarantee a playable stream, and a scheduled sports event
-needs its source to publish a supported broadcast link. Playback depends on the
-upstream services and your internet connection. The host computer must stay
-running while devices use the provider.
+</div>
 
-## Requirements
+---
 
-- Node.js 24 or newer, including npm and the built-in SQLite module
-- Internet access for the upstream metadata and streams
+## Overview
 
-This is a Node.js project with no npm runtime dependencies.
-[`requirements.txt`](requirements.txt) records the runtime requirements and
-contains no Python packages.
+FreeIPTV runs on your computer and exposes external web-player streams to IPTV
+apps on your local network. One Node.js process handles the catalog, playback
+resolution, and HLS relay. A terminal dashboard keeps connection details visible
+above a live request log.
 
-## Set up
+| Feature | What you get |
+| --- | --- |
+| **Player compatibility** | Xtream-compatible login and M3U playlists |
+| **Movies and series** | TMDB listings, artwork, seasons, and episode details |
+| **Live sports** | Scheduled events, a sports-only playlist, and an XMLTV guide |
+| **HLS playback** | Local stream relay, highest advertised video quality, and supported subtitles |
+| **Terminal dashboard** | Fixed connection panel with incoming requests and server activity below |
+| **Local accounts** | Choose your login at startup and keep it across restarts |
+
+> **Availability:** Catalog entries and scheduled events do not guarantee a
+> playable stream. Playback depends on external sources and your internet
+> connection. Keep the host computer running while you use the service.
+
+## Quick start
+
+### Requirements
+
+- **Node.js 24 or newer**, with npm and the built-in SQLite module
+- Internet access for metadata and streams
+- An IPTV player that supports Xtream Codes or M3U
+
+There are no npm runtime dependencies. [`requirements.txt`](requirements.txt)
+records the runtime requirements; it contains no Python packages.
+
+### Install and run
+
+Clone the repository using a GitHub account with access:
 
 ```sh
 git clone https://github.com/JackHars/freeiptv.git
@@ -61,59 +59,151 @@ npm ci
 npm start
 ```
 
-`npm start` opens a terminal login screen **before the server starts**. On a
-fresh install, enter a username and password, then confirm the password. The
-password is hidden as you type. On later interactive starts, press Enter at a
-prompt to keep that value or type a replacement. If you change the login,
-update the account in your IPTV apps. For a start without an interactive
-terminal, set up the login once in a terminal first; later starts reuse the
-saved credentials.
+On first launch, choose a **username** and **password**, then confirm the
+password. Password entry is hidden. There are **no default credentials**.
 
-After startup, a fixed terminal panel shows the IPTV server address, username,
-password, M3U playlist URLs, and XMLTV guide URL. Incoming requests and server
-activity scroll beneath the panel. Request logs omit credentials and signed
-media tokens. Keep that terminal open while using the service; press Ctrl+C
-to stop it. There is no browser interface.
+On later interactive launches, press **Enter** to keep a saved value or enter a
+replacement. If you change your login, update it in your IPTV apps too. To run
+without an interactive terminal, complete the first setup in a terminal; later
+starts reuse the saved credentials.
 
-## Add it to an IPTV app
+### Terminal dashboard
 
-1. Start the server and read the connection details printed in its terminal.
-2. In your IPTV app, add a provider using **Xtream Codes** (also called
-   **Xtream API** or **username/password login**).
-3. Enter these connection details:
+Once the server starts, the fixed connection panel displays:
 
-   | Field | Value |
-   | --- | --- |
-   | Server / portal URL | The **IPTV server** address printed in the terminal, such as `http://192.168.1.100:8091` |
-   | Username | The username printed in the terminal |
-   | Password | The password printed in the terminal |
-   | Stream format, if asked | HLS / m3u8 |
+- Xtream server address, username, and password
+- Full M3U playlist and sports-only playlist URLs
+- XMLTV guide URL and stream format
 
-4. Save the provider and open **Movies**, **Series**, or **Live TV** in the app.
+Incoming requests and server activity appear below the panel. Request logs omit
+credentials and signed media tokens. Keep the terminal open while using the
+server, and press **Ctrl+C** to stop it. The terminal is the only user interface.
 
-There are **no default credentials** for a fresh install. The server saves
-your chosen login in `data/iptv.json`. They stay the same across restarts if
-you keep `data/`.
+## Connect your player
 
-If your app accepts **M3U** instead of Xtream Codes, copy the **M3U playlist**
-URL printed in the terminal into its M3U URL field. If it has an EPG or TV
-guide field, copy the **XMLTV guide** URL. Refresh the playlist in the app
-after changing the catalog. See [IPTV.md](IPTV.md) for more detail.
+### Xtream Codes
 
-`HOST` and `PORT` override the default listener (`0.0.0.0:8091`). For access
-only from the host computer, start with `HOST=127.0.0.1 npm start`. If you use
-a firewall, allow port 8091 only on your trusted local network.
+1. Start FreeIPTV and open your IPTV app.
+2. Add a provider using **Xtream Codes**, **Xtream API**, or **username/password login**.
+3. Copy the connection details from the terminal:
 
-The server creates `data/` on first start. It contains the IPTV login,
-signing secret, catalog, and SQLite index. Keep it private and back it up if
-you want to preserve the account and saved catalog. `data/`, `config.json`,
-and environment files are excluded from Git.
+| Player field | Value |
+| --- | --- |
+| **Server / portal URL** | The **IPTV server** address, for example `http://192.168.1.100:8091` |
+| **Username** | Your username shown in the terminal |
+| **Password** | Your password shown in the terminal |
+| **Stream format** | **HLS / m3u8**, if requested |
 
-## Verify
+4. Save the provider and open **Movies**, **Series**, or **Live TV**.
+
+### M3U and TV guide
+
+Copy the terminal's **M3U playlist** URL into your player's M3U URL field. For an
+EPG or TV guide, use the **XMLTV guide** URL. Use the **sports-only playlist** URL
+if you only want live events.
+
+Refresh the provider or playlist after changing the catalog. See the
+[IPTV connection and API reference](IPTV.md) for endpoints, playlist options,
+and catalog management.
+
+## How it works
+
+```text
+IPTV player on your LAN
+        |
+        | Xtream API / M3U / XMLTV
+        v
+FreeIPTV on your computer
+        |
+        +-- TMDB ------------------> Movie and series metadata
+        +-- Cinejoy playback API --> Movie and episode HLS sources
+        +-- Sports event pages ----> Schedules and published HLS sources
+        |
+        +-- Local HLS relay -------> Playlists, segments, keys, and subtitles
+```
+
+### 1. Build the catalog
+
+FreeIPTV retrieves movie and series names, artwork, and episode details from
+**TMDB**. A separate sports adapter reads event pages for schedules. These
+listings become Xtream-compatible responses, M3U playlists, and a sports XMLTV
+guide. **TMDB supplies metadata, not video.**
+
+### 2. Resolve playback on demand
+
+When you play a movie or episode, the server sends its TMDB ID, plus season and
+episode numbers when applicable, to Cinejoy's **`api.wing.st`** playback backend.
+The bundled **`api/crush.wasm`** helper encodes the request in the site's
+**`lumen-gate`** format, and the server decrypts the reply. It tries the backend's
+video mirrors in order until one returns an HLS `.m3u8` playlist.
+
+### 3. Reproduce the web player's requests
+
+Movie and episode media requests carry a browser-style **User-Agent** and the
+**`Origin`** and **`Referer`** of **`cinejoy.pk`**. This reproduces the headers used
+by that web player when fetching its streams. It does not grant access to a
+stream the source has not published.
+
+### 4. Relay the stream to your player
+
+FreeIPTV fetches the HLS playlist, selects the highest advertised video quality,
+and rewrites remote playlist, segment, and key URLs as **signed local URLs**.
+Your IPTV app requests those local URLs; FreeIPTV forwards the requests with the
+required headers and streams the returned bytes back. Supported subtitle tracks
+can also be attached. Videos are not saved as a local library.
+
+### 5. Resolve sports feeds separately
+
+The sports adapter follows published iframe or player links from event pages to
+find an HLS feed. It relays that feed using the source page's `Referer`, `Origin`,
+and browser-style User-Agent. A scheduled event remains unplayable until its
+source publishes a supported HLS link. The repository contains no permanent TV
+channels or video library.
+
+## Configuration
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `HOST` | `0.0.0.0` | Network interface to listen on |
+| `PORT` | `8091` | HTTP server port |
+
+For access only from the host computer:
+
+```sh
+HOST=127.0.0.1 npm start
+```
+
+To use another port:
+
+```sh
+PORT=8092 npm start
+```
+
+FreeIPTV is intended for a **trusted local network** and is not configured for
+public access. If a firewall is enabled, allow the configured port on your
+trusted LAN. Other devices must be able to reach the host computer.
+
+### Saved data
+
+The server creates `data/` on first launch. It holds your login, signing secret,
+catalog, and SQLite index. The chosen credentials are saved in `data/iptv.json`.
+Keep this directory private and back it up to preserve your account and catalog.
+
+`data/`, `config.json`, and environment files are excluded from Git. Additional
+catalog settings and cache details are documented in [IPTV.md](IPTV.md#local-data-and-configuration).
+
+## Verification
+
+Check the source syntax:
 
 ```sh
 npm run check
+```
+
+With the server running, check its health:
+
+```sh
 curl http://localhost:8091/health
 ```
 
-Keep this server on a trusted LAN; it is not configured for public access.
+For the available test commands and API checks, see [IPTV.md](IPTV.md#checks).
