@@ -81,9 +81,9 @@ Open the **Web interface** address printed in the terminal, or
 Use the server’s LAN address on another device.
 
 <p align="center">
-  <a href="docs/screenshots/home.jpg"><img src="docs/screenshots/home.jpg" alt="FreeIPTV Discover home screen with the FIPTV logo, featured movie, and movie and series browsing rows" width="380"></a>
+  <a href="docs/screenshots/home.jpg"><img src="docs/screenshots/home.jpg" alt="FreeIPTV desktop Discover home screen with the FIPTV logo, featured movie, and movie browsing row" width="100%"></a>
   <br>
-  <sub>The current Discover home screen, shown in a narrow browser window.</sub>
+  <sub>The Discover home screen, captured in fullscreen Chrome.</sub>
 </p>
 
 - **Discover, Movies, and Series:** Browse artwork, search titles, inspect details,
