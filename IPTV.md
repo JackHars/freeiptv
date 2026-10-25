@@ -36,14 +36,14 @@ downloads are not implemented. A sports-only playlist appends `&content=live`
 to the printed M3U URL. A series-only playlist appends `&series_id=1396`,
 replacing `1396` with the series TMDB ID.
 
-The movie and series catalog comes from the 7Movies / Vidrift catalog endpoints,
+The movie and series catalog comes from the 7Movies / Vidrift and Atlantic endpoints,
 with optional TMDB fallback. It is a browsing
 catalog, not a list of confirmed video files. When playback begins, the
 server tries Cinejoy, Atlantic, Tvids, Zstream, Vidrift, and VidSrc in that
 order by default for a playable HLS source. Settings → Providers controls the
 enabled sources, fallback order, time limits, and resolution cache. VidSrc needs
-an IMDb ID from the metadata layer. Upstream movie details supply it; series may
-need optional TMDB fallback. If no mapping is available, VidSrc fails for that
+an IMDb ID from the metadata layer. Upstream movie details supply it, and Atlantic
+also supplies series mappings. If no mapping is available, VidSrc fails for that
 title and playback can use another enabled provider.
 Each source is checked through its highest-quality variant and a video segment
 before selection. Its browser-style headers are retained throughout playback. The IPTV
@@ -120,8 +120,20 @@ of a playing segment; reopen the title if an upstream stream later fails.
 
 ## Metadata sources and optional TMDB fallback
 
-The primary catalog source is 7Movies (`7movies.ac`), followed by its mirror
-(`7movies.ws`). The adapter uses the site's public list/detail, search, discovery,
+Metadata requests try these sources in order:
+
+1. **7Movies / Vidrift** (`7movies.ac`).
+2. **Atlantic** (`db.hls.lol`), a separate provider endpoint with lists, search,
+   movie/series details, credits, artwork, seasons, and IMDb mappings.
+3. **7Movies mirror** (`7movies.ws`), another domain in the first provider family.
+4. **Your TMDB account**, only when the optional fallback is enabled.
+
+These provider endpoints still serve TMDB-derived information. They give us
+separate upstream routes without a personal key, not independent underlying
+movie databases. Each provider has its own failure backoff; a failed primary
+is retried later without disabling the other providers.
+
+The adapter uses the sites' public list/detail, search, discovery,
 and season endpoints. Search returns the provider's result set; it is not an
 exhaustive offline index of every TMDB title. Imports use popular/highly rated
 lists and release-year discovery. Existing cached titles and pins are retained.

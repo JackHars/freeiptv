@@ -167,8 +167,9 @@ FreeIPTV on your computer
 
 ### 1. Build the catalog
 
-FreeIPTV reads the public catalog endpoints used by **7Movies / Vidrift**,
-trying its alternate domain if the primary source fails. Those endpoints provide
+FreeIPTV tries **7Movies / Vidrift**, then **Atlantic**, then the alternate
+7Movies domain. Atlantic supplies a separate metadata endpoint, so a 7Movies
+outage can fall back to another provider before its mirror. Those endpoints provide
 popular and highly rated lists, search results, title details, credits, artwork,
 and seasons. The server normalizes their responses for the web UI and Xtream,
 keeps existing title and episode IDs, and caches metadata locally. Catalog imports
@@ -182,9 +183,9 @@ used when upstream information is missing or unavailable. Credentials are checke
 with TMDB when you save them; no shared credential is bundled. Without a fallback,
 cached information remains usable during temporary outages where available.
 
-The upstream sites may themselves obtain information from TMDB, and artwork still
-loads from its image CDN. This removes our mandatory direct API dependency, not
-the use of TMDB IDs or images. Sports schedules use a separate adapter and do not
+These upstream endpoints serve TMDB-derived information, and artwork still
+loads from its image CDN. No personal API credential is required for upstream
+metadata, but TMDB IDs and images are still used. Sports schedules use a separate adapter and do not
 require a TMDB credential. Catalog entries describe titles, not confirmed video
 availability.
 
@@ -213,8 +214,8 @@ serves HLS to IPTV players.
 All six adapters run inside the existing Node.js process. The new adapters were
 ported from Red Hermes' October 25, 2026 research using Node's built-in crypto.
 
-VidSrc needs an IMDb ID. Upstream movie details normally include one; series
-mappings may need the optional TMDB fallback. A missing mapping makes VidSrc fail
+VidSrc needs an IMDb ID. Upstream movie details normally include one; Atlantic
+also supplies series mappings without a personal TMDB key. A missing mapping makes VidSrc fail
 for that title, allowing the other enabled playback providers to be tried.
 
 ### 3. Reproduce each web player's requests

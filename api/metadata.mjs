@@ -4,9 +4,11 @@ import { createHash } from 'node:crypto';
 import { settingsStore, dataDirectory, problem } from './settings.mjs';
 import { requestTMDB } from './tmdb.mjs';
 
-// Public catalog endpoints used by the Vidrift/7Movies web player. No upstream
-// account, embedded API key, or direct TMDB request is needed for these sources.
-export const catalogSources = ['https://7movies.ac', 'https://7movies.ws'];
+// Public catalog endpoints used by the Vidrift/7Movies and Atlantic web players.
+// Try a separate provider before another domain from the same provider family.
+// No embedded API key or direct TMDB request is needed for these sources.
+const ATLANTIC = 'https://db.hls.lol';
+export const catalogSources = ['https://7movies.ac', ATLANTIC, 'https://7movies.ws'];
 const HOUR = 3600000, MAX_ENTRIES = 300, MAX_BYTES = 12 * 1024 * 1024;
 // The provider's published genre taxonomy (shared IDs keep existing IPTV lists valid).
 const genres = {
@@ -45,7 +47,7 @@ function validate(data, path, kind) {
     ['search','list','discover'].includes(kind) ? Number.isInteger(data.total_pages) && data.total_pages >= 0 && Array.isArray(data.results) && data.results.every(i => validID(i.id) && (i.title || i.name)) :
     kind === 'season' ? Array.isArray(data.episodes) && data.episodes.every(e => validID(e.id) && validID(e.episode_number) && e.season_number === Number(parts[4])) :
     kind === 'detail' ? Number(data.id) === Number(parts[2]) && (data.title || data.name) && (parts[1] !== 'tv' || Array.isArray(data.seasons)) :
-    kind === 'ids' ? /^tt\d+$/.test(data.imdb_id || '') :
+    kind === 'ids' ? (!data.id || Number(data.id) === Number(parts[2])) && /^tt\d+$/.test(data.imdb_id || '') :
     kind === 'genres' ? Array.isArray(data.genres) :
     Array.isArray(data.posters) && Array.isArray(data.backdrops)
   );
@@ -96,8 +98,9 @@ export function createMetadataService({ directory, fetcher = (...args) => fetch(
   async function json(origin, endpoint, signal) {
     let response;
     try {
+      const site = origin === ATLANTIC ? 'https://atlantic.st' : origin;
       response = await fetcher(origin + endpoint, {
-        headers: { accept: 'application/json', 'user-agent': 'Mozilla/5.0', referer: origin + '/', origin },
+        headers: { accept: 'application/json', 'user-agent': 'Mozilla/5.0', referer: site + '/', origin: site },
         signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])]),
       });
       if (!response.ok) {
@@ -114,6 +117,21 @@ export function createMetadataService({ directory, fetcher = (...args) => fetch(
   }
   async function upstream(origin, path, extra, kind, signal) {
     const parts = path.split('/'), page = Math.min(500, Math.max(1, Math.floor(Number(extra.page) || 1)));
+    if (origin === ATLANTIC) {
+      const query = new URLSearchParams({ language: 'en-US', include_adult: 'false' });
+      if (['search','list','discover'].includes(kind)) query.set('page', String(page));
+      if (kind === 'search') query.set('query', String(extra.query || ''));
+      if (kind === 'detail') query.set('append_to_response', 'credits,external_ids');
+      if (kind === 'discover') for (const key of ['sort_by','primary_release_date.gte','primary_release_date.lte','first_air_date.gte','first_air_date.lte']) {
+        if (extra[key] !== undefined) query.set(key, String(extra[key]));
+      }
+      // Only public metadata parameters are forwarded, never the optional TMDB key.
+      let data = await json(origin, '/3' + path + '?' + query, signal);
+      if (kind === 'search' && Array.isArray(data.results)) {
+        data = { ...data, results: data.results.filter(i => ['movie','tv'].includes(i.media_type || parts[2])).map(i => normalizeItem(i, i.media_type || parts[2])) };
+      }
+      return data;
+    }
     if (kind === 'search') {
       const data = await json(origin, '/api/search?' + new URLSearchParams({ v: '5', q: String(extra.query || '') }), signal);
       if (!Array.isArray(data.results)) throw problem(502, 'The upstream search response is incomplete.');
@@ -137,6 +155,7 @@ export function createMetadataService({ directory, fetcher = (...args) => fetch(
     }
     if (kind === 'ids') {
       const data = await json(origin, '/api/tmdb?' + new URLSearchParams({ path: `/${parts[1]}/${parts[2]}` }), signal);
+      validate(data, `/${parts[1]}/${parts[2]}`, 'detail');
       return { id: Number(parts[2]), imdb_id: data.imdb_id || data.external_ids?.imdb_id || null };
     }
     // Lists, details (including credits), and artwork have TMDB-shaped responses.
