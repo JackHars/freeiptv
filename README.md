@@ -80,6 +80,12 @@ Open the **Web interface** address printed in the terminal, or
 `http://localhost:8091` on the host computer, and sign in with your IPTV account.
 Use the server’s LAN address on another device.
 
+<p align="center">
+  <a href="docs/screenshots/home.jpg"><img src="docs/screenshots/home.jpg" alt="FreeIPTV Discover home screen with the FIPTV logo, featured movie, and movie and series browsing rows" width="380"></a>
+  <br>
+  <sub>The current Discover home screen, shown in a narrow browser window.</sub>
+</p>
+
 - **Discover, Movies, and Series:** Browse artwork, search titles, inspect details,
   choose a season and episode, and play in the browser. Save titles to **My List**
   on the current browser.
