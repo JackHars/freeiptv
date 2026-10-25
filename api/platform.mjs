@@ -1,10 +1,11 @@
-// Cinejoy API, extracted from /workspace/platform/platform.mjs.
+// Metadata, playback-provider resolution, and the programmatic media API.
 // Embedded by ../server.mjs; owns no listener or Docker connection.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { webcrypto as crypto } from 'node:crypto';
+import { createProviderResolver, PROVIDERS, mediaHeaders } from './providers.mjs';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const BASE = 'https://api.wing.st';
@@ -22,7 +23,6 @@ const HDRS = {
   'origin': 'https://cinejoy.pk',
 };
 const SERVER_ORDER = ['Nebula', 'Lisbon', 'Solara', 'Athens'];
-const RESOLVE_TTL = 300 * 1000;
 const TMDB_TTL = 120 * 1000;
 const SERVERS_TTL = 60 * 1000;
 
@@ -73,7 +73,7 @@ async function seal(reqPath, payload) {
   };
 }
 
-async function lumenGet(reqPath, params) {
+async function lumenGet(reqPath, params, signal) {
   const qs = new URLSearchParams(params).toString();
   const full = reqPath + (qs ? '?' + qs : '');
   const out = await seal(full, null);
@@ -81,7 +81,7 @@ async function lumenGet(reqPath, params) {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
     body: out.body,
-    signal: AbortSignal.timeout(60_000),
+    signal: AbortSignal.any([AbortSignal.timeout(8000), ...(signal ? [signal] : [])]),
   });
   if (!r.ok) throw new Error(`lumen-gate HTTP ${r.status}`);
   const respBytes = new Uint8Array(await r.arrayBuffer());
@@ -118,17 +118,16 @@ class TtlCache {
   }
 }
 const tmdb_cache = new TtlCache(TMDB_TTL);
-const resolve_cache = new TtlCache(RESOLVE_TTL);
 const servers_cache = new TtlCache(SERVERS_TTL);
 
-async function tmdb_get(pth, extra = {}) {
+async function tmdb_get(pth, extra = {}, signal) {
   const params = { api_key: TMDB_KEY, language: 'en-US', ...extra };
   const key = pth + '?' + new URLSearchParams(params).toString();
   const hit = tmdb_cache.get(key);
   if (hit) return hit;
   const r = await fetch(TMDB_BASE + pth + '?' + new URLSearchParams(params), {
     headers: { 'user-agent': 'Mozilla/5.0' },
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.any([AbortSignal.timeout(30000), ...(signal ? [signal] : [])]),
   });
   if (!r.ok) throw new Error(`TMDB HTTP ${r.status} for ${pth}`);
   const data = await r.json();
@@ -148,41 +147,24 @@ const mapItem = (x, kind) => ({
 });
 
 const fetchUpstream = (u, timeoutMs = 90_000, options = {}) =>
-  fetch(u, { ...options, headers: { ...HDRS, ...options.headers }, signal: options.signal || AbortSignal.timeout(timeoutMs) });
+  fetch(u, { ...options, headers: { ...HDRS, ...options.headers }, signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(options.signal ? [options.signal] : [])]) });
 
 const absUrl = (rel, base) =>
   (rel.startsWith('http') ? new URL(rel) : new URL(rel, base)).href;
 
-function rewritePlaylist(text, baseUrl, prefix = '/proxy') {
+function rewritePlaylist(text, baseUrl, headers) {
   const out = [];
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (!line) { out.push(''); continue; }
     if (line.startsWith('#')) {
       out.push(line.replace(/URI="([^"]+)"/g, (_, u) =>
-        'URI="' + prefix + '?u=' + encodeURIComponent(absUrl(u, baseUrl)) + '"'));
+        'URI="' + proxyLink(absUrl(u, baseUrl), headers) + '"'));
     } else {
-      out.push(prefix + '?u=' + encodeURIComponent(absUrl(line, baseUrl)));
+      out.push(proxyLink(absUrl(line, baseUrl), headers));
     }
   }
   return out.join('\n') + '\n';
-}
-
-function parseVariants(master, baseUrl) {
-  const out = [];
-  for (const m of master.matchAll(/#EXT-X-STREAM-INF:([^\n]+)\n(\S+)/g)) {
-    const [, attrs, uri] = m;
-    const res = attrs.match(/RESOLUTION=(\d+)x(\d+)/);
-    const bw = attrs.match(/BANDWIDTH=(\d+)/);
-    out.push({
-      resolution: res ? `${res[1]}x${res[2]}` : '?',
-      width: res ? +res[1] : 0,
-      bandwidth: bw ? +bw[1] : 0,
-      media: absUrl(uri, baseUrl),
-    });
-  }
-  out.sort((a, b) => (b.width - a.width) || (b.bandwidth - a.bandwidth));
-  return out;
 }
 
 function pickVariant(variants, v) {
@@ -211,75 +193,38 @@ async function getServers() {
 
 // ---------------------------------------------------------------- resolve
 
-class ResolutionError extends Error {
-  constructor(status, msg) { super(msg); this.status = status; this.msg = msg; }
+async function resolveCinejoy(input, ctx) {
+  const params = { tmdb: String(input.tmdb) };
+  if (input.kind === 'series') { params.season = String(input.season); params.episode = String(input.episode); }
+  const errors = {}, tried = [];
+  for (const server of input.server ? [input.server] : SERVER_ORDER) {
+    ctx.signal.throwIfAborted(); tried.push(server);
+    try {
+      const response = await lumenGet(`/${server}/${input.kind}`, params, ctx.signal);
+      if (response.status !== 200) throw new Error(`Playback backend status ${response.status}`);
+      const streams = (response.data?.stream || []).filter(s => s.type === 'hls' && s.playlist);
+      if (!streams.length) throw new Error('No HLS source');
+      for (const stream of streams) {
+        try {
+          const result = await ctx.accept(stream.playlist, { ...HDRS, ...mediaHeaders(stream.headers) }, server);
+          return { ...result, tried, server_errors: errors };
+        } catch (error) { errors[server] = error.message; }
+      }
+    } catch (error) { errors[server] = error.message; }
+  }
+  throw new Error(Object.entries(errors).map(([k, v]) => `${k}: ${v}`).join('; '));
 }
 
-async function resolve(tmdbId, kind, season = null, episode = null, server = null, fresh = false) {
-  const key = [kind, tmdbId, season, episode, server || 'auto'].join('|');
-  if (!fresh) {
-    const hit = resolve_cache.get(key);
-    if (hit) return { ...hit, cached: true };
-  }
-  if (!/^\d+$/.test(String(tmdbId))) throw new Error('tmdb must be numeric');
-  const params = { tmdb: String(tmdbId) };
-  if (kind === 'series') {
-    if (season == null || episode == null) throw new Error('series requires s and e');
-    params.season = String(season);
-    params.episode = String(episode);
-  }
-
-  const order = server ? [server] : [...SERVER_ORDER];
-  const errors = {};
-  const tried = [];
-  let data = null, used = null;
-  for (const srv of order) {
-    tried.push(srv);
-    try {
-      const out = await lumenGet(`/${srv}/${kind}`, params);
-      if (out.status === 200) { data = out.data; used = srv; break; }
-      throw new Error('lumen-gate error ' + out.status + ': ' +
-        (typeof out.data === 'string' ? out.data : JSON.stringify(out.data)));
-    } catch (e) {
-      errors[srv] = e.message;
-    }
-  }
-  if (data == null) {
-    const detail = Object.entries(errors).map(([k, v]) =>
-      `${k}: ${String(v).split('\n')[0]}`).join('; ');
-    const markers = ['not carried', 'empty mirror', 'no playable stream', 'not found'];
-    const unavailable = Object.keys(errors).filter((k) => markers.some((m) => errors[k].includes(m)));
-    if (unavailable.length) {
-      const missing = Object.keys(errors).filter((k) => !unavailable.includes(k));
-      const note = missing.length ? ` (${missing.join(', ')} did not confirm)` : '';
-      throw new ResolutionError(404, `title ${tmdbId} not carried${note}: ${detail}`);
-    }
-    throw new ResolutionError(502, `all servers failed: ${detail}`);
-  }
-
-  const streams = data.stream || [];
-  const master = (streams.find((s) => s.type === 'hls' && s.playlist) || {}).playlist;
-  if (!master) throw new ResolutionError(502, 'no hls stream in response: ' + JSON.stringify(data));
-
-  let variants = [];
-  try {
-    const r = await fetchUpstream(master, 30_000);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    variants = parseVariants(await r.text(), master);
-  } catch (e) { variants = [{ error: String(e).slice(0, 200) }]; }
-
-  const out = {
-    tmdb: +tmdbId, kind,
-    season: season == null ? null : +season,
-    episode: episode == null ? null : +episode,
-    server: used, tried, server_errors: errors,
-    master,
-    master_proxied: '/proxy?u=' + encodeURIComponent(master),
-    streams: streams.map(({ playlist, ...rest }) => ({ ...rest, playlist: playlist || '' })),
-    variants, cached: false,
-  };
-  resolve_cache.set(key, out);
-  return out;
+const resolveProviders = createProviderResolver({ cinejoy: resolveCinejoy, getCatalogData: tmdb_get });
+function proxyLink(url, headers = {}) {
+  const query = new URLSearchParams({ u: url });
+  const safe = mediaHeaders(headers);
+  if (Object.keys(safe).length) query.set('h', Buffer.from(JSON.stringify(safe)).toString('base64url'));
+  return '/proxy?' + query;
+}
+async function resolve(tmdbId, kind, season = null, episode = null, server = null, fresh = false, options = {}) {
+  const result = await resolveProviders({ tmdb: tmdbId, kind, season, episode, server, fresh, ...options });
+  return { ...result, master_proxied: proxyLink(result.master, result.headers) };
 }
 
 // ---------------------------------------------------------------- http
@@ -325,6 +270,9 @@ export async function handleApiRequest(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   const q = (name, dflt = '') => url.searchParams.get(name) ?? dflt;
+  const controller = new AbortController();
+  res.once('close', () => controller.abort());
+  const resolutionOptions = { provider: q('provider') || undefined, signal: controller.signal };
 
   if (req.method === 'POST' && p === '/resolve') {
     try {
@@ -332,10 +280,10 @@ export async function handleApiRequest(req, res) {
       const kind = String(body.kind || 'movie').toLowerCase();
       const out = await resolve(body.tmdb, kind,
         body.s ?? body.season ?? null, body.e ?? body.episode ?? null,
-        body.server || null, !!body.fresh);
+        body.server || null, !!body.fresh, { ...resolutionOptions, provider: body.provider || resolutionOptions.provider });
       return sendJson(res, 200, out);
     } catch (e) {
-      if (e instanceof ResolutionError) return sendErr(res, e.status, e.msg);
+      if (e.status) return sendJson(res, e.status, { error: e.message, provider_errors: e.provider_errors, provider_order: e.provider_order });
       if (e instanceof SyntaxError) return sendErr(res, 400, 'invalid JSON body');
       if (/numeric|required/.test(e.message)) return sendErr(res, 400, e.message);
       return sendErr(res, 500, e.constructor.name + ': ' + e.message);
@@ -346,8 +294,8 @@ export async function handleApiRequest(req, res) {
 
   try {
     if (p === '/api') return sendJson(res, 200, {
-      name: 'Cinejoy Platform API', version: '1',
-      endpoints: ['/servers', '/search', '/browse', '/title', '/episodes',
+      name: 'FreeIPTV API', version: '2',
+      endpoints: ['/providers', '/servers', '/search', '/browse', '/title', '/episodes',
                   '/images', '/resolve', '/master', '/watch', '/proxy', '/health'],
     });
 
@@ -356,6 +304,8 @@ export async function handleApiRequest(req, res) {
       uptime_s: Math.floor((Date.now() - START) / 1000),
       cached_resolves: 'yes',
     });
+
+    if (p === '/providers') return sendJson(res, 200, { providers: PROVIDERS, default: 'auto', format: 'hls' });
 
     if (p === '/servers') return sendJson(res, 200, { servers: await getServers() });
 
@@ -455,7 +405,7 @@ export async function handleApiRequest(req, res) {
       const out = await resolve(tmdbId, kind,
         s == null ? null : +s, e == null ? null : +e,
         url.searchParams.get('server'),
-        ['1', 'true'].includes(q('fresh', '0')));
+        ['1', 'true'].includes(q('fresh', '0')), resolutionOptions);
       return sendJson(res, 200, out);
     }
 
@@ -470,18 +420,10 @@ export async function handleApiRequest(req, res) {
       const e = url.searchParams.get('e') ?? url.searchParams.get('episode');
       const r = await resolve(tmdbId, kind,
         s == null ? null : +s, e == null ? null : +e,
-        url.searchParams.get('server'));
-      const good = (r.variants || []).filter((v) => v.media);
-      if (!good.length)
-        return sendErr(res, 502, 'no playable variant: ' +
-          JSON.stringify(r.variants).slice(0, 300));
-      let m3u = '#EXTM3U\n#EXT-X-VERSION:4\n';
-      for (const v of good) {
-        const label = v.width >= 3840 ? '4K' : (v.width || 0) + 'p';
-        m3u += `#EXT-X-STREAM-INF:BANDWIDTH=${v.bandwidth || 1000000},RESOLUTION=${v.resolution !== '?' ? v.resolution : '1920x1080'},NAME="${label}"\n`;
-        m3u += '/proxy?u=' + encodeURIComponent(v.media) + '\n';
-      }
-      return sendM3u8(res, m3u);
+        url.searchParams.get('server'), false, resolutionOptions);
+      const upstream = await fetchUpstream(r.master, 30000, { headers: r.headers, signal: controller.signal });
+      if (!upstream.ok) return sendErr(res, 502, 'master fetch HTTP ' + upstream.status);
+      return sendM3u8(res, rewritePlaylist(await upstream.text(), upstream.url || r.master, r.headers));
     }
 
     if (p === '/watch') {
@@ -495,19 +437,22 @@ export async function handleApiRequest(req, res) {
       const e = url.searchParams.get('e') ?? url.searchParams.get('episode');
       const r = await resolve(tmdbId, kind,
         s == null ? null : +s, e == null ? null : +e,
-        url.searchParams.get('server'));
+        url.searchParams.get('server'), false, resolutionOptions);
       const v = q('v', 'best');
-      const media = pickVariant(r.variants || [], v);
+      const media = pickVariant(r.variants || [], v) || r.master;
       if (!media) return sendErr(res, 502, 'no playable variant (asked for ' + v + ')');
-      const r2 = await fetchUpstream(media, 30_000);
+      const r2 = await fetchUpstream(media, 30_000, { headers: r.headers, signal: controller.signal });
       if (!r2.ok) return sendErr(res, 502, 'variant fetch HTTP ' + r2.status);
-      return sendM3u8(res, rewritePlaylist(await r2.text(), media));
+      return sendM3u8(res, rewritePlaylist(await r2.text(), r2.url || media, r.headers));
     }
 
     if (p === '/proxy') {
       const u = q('u');
       if (!/^https?:\/\//.test(u)) return sendErr(res, 400, 'u must be an http(s) URL');
-      const r = await fetchUpstream(u, 120_000);
+      let headers;
+      try { headers = q('h') ? mediaHeaders(JSON.parse(Buffer.from(q('h'), 'base64url').toString())) : HDRS; }
+      catch { return sendErr(res, 400, 'Invalid proxy headers'); }
+      const r = await fetchUpstream(u, 120_000, { headers, signal: controller.signal });
       if (!r.ok) return sendErr(res, 502, 'upstream HTTP ' + r.status + ' for ' + u);
       const ctype = r.headers.get('content-type') || '';
       const data = Buffer.from(await r.arrayBuffer());
@@ -515,7 +460,7 @@ export async function handleApiRequest(req, res) {
       if (head.startsWith('#EXTM3U') || ctype.includes('xml') || ctype.includes('text')) {
         const text = data.toString('utf8');
         if (text.trimStart().startsWith('#EXTM3U')) {
-          return sendM3u8(res, rewritePlaylist(text, u));
+          return sendM3u8(res, rewritePlaylist(text, r.url || u, headers));
         }
       }
       res.writeHead(200, {
@@ -528,7 +473,7 @@ export async function handleApiRequest(req, res) {
 
     return sendErr(res, 404, 'unknown route');
   } catch (e) {
-    if (e instanceof ResolutionError) return sendErr(res, e.status, e.msg);
+    if (e.status) return sendJson(res, e.status, { error: e.message, provider_errors: e.provider_errors, provider_order: e.provider_order });
     if (/numeric|required|requires|must be/.test(e.message)) return sendErr(res, 400, e.message);
     console.error(`[error] ${req.method} ${p}:`, e);
     return sendErr(res, 500, e.constructor.name + ': ' + e.message);

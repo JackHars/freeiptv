@@ -34,8 +34,10 @@ replacing `1396` with the series TMDB ID.
 
 The movie and series catalog comes from TMDB metadata. It is a browsing
 catalog, not a list of confirmed video files. When playback begins, the
-server uses the title's TMDB ID to ask Cinejoy's playback backend for an HLS
-source. It sends browser-style headers when fetching that source. The IPTV
+server tries Cinejoy, Atlantic, Tvids, Zstream, Vidrift, and VidSrc in that
+order for a playable HLS source. VidSrc uses TMDB to look up the IMDb ID.
+Each source is checked through its highest-quality variant and a video segment
+before selection. Its browser-style headers are retained throughout playback. The IPTV
 server rewrites HLS playlists to local signed links and relays playlists,
 video segments, keys, and supported subtitles to the player. The highest
 advertised video quality is selected. Media links expire after 24 hours;
@@ -71,6 +73,30 @@ normal catalog refreshes on demand after 12 hours; sports schedules refresh
 every minute. Large catalog imports can take several minutes. The previous
 catalog stays available during a refresh.
 
+## Playback provider diagnostics
+
+`GET /providers` lists the six installed providers in fallback order. IPTV movie
+and episode URLs select a provider automatically; existing player settings work
+without changes. Live sports continue to use the separate sports adapter.
+
+For a targeted check, use `GET /resolve?tmdb=550&kind=movie&provider=atlantic`.
+For series, use `kind=series&s=1&e=1`. The same fields work with JSON `POST /resolve`.
+Omit `provider` for automatic fallback. The response includes `provider`,
+`server`, `headers`, `provider_order`, `provider_errors`, and `master_proxied`.
+The proxied master preserves the selected provider's headers on nested requests.
+`/master` and `/watch` also accept `provider`.
+
+Use `fresh=1` on GET `/resolve` (or `fresh: true` in JSON) to bypass the five-minute
+resolution cache. Failures are not cached. The legacy `server` parameter pins a
+Cinejoy mirror and cannot be combined with another provider.
+
+Automatic resolution allows up to 30 seconds per provider and 180 seconds overall;
+a diagnostic request pinned to one provider allows 75 seconds. Failed HLS and
+placeholder segments trigger fallback. MP4-only sources are skipped. If the
+selected master fails before playback starts, the IPTV route makes one further
+attempt excluding that provider. It cannot switch sources seamlessly in the middle
+of a playing segment; reopen the title if an upstream stream later fails.
+
 ## Local data and configuration
 
 `data/iptv.json` stores the chosen login, signing secret, and pinned titles.
@@ -91,7 +117,7 @@ server defaults to `0.0.0.0:8091`; `HOST` and `PORT` override that listener.
 ## Checks
 
 Run `npm run check`, `npm run test:login`, `npm run test:catalog-import`,
-`npm run test:iptv-quality`, and `npm run test:sports` for offline checks.
+`npm run test:iptv-quality`, `npm run test:providers`, and `npm run test:sports` for offline checks.
 With a populated catalog and running server, `npm run test:iptv-catalog`
 checks Xtream movie and series responses. It reads the local saved login;
 for a remote server, set `IPTV_BASE`, `IPTV_USERNAME`, and `IPTV_PASSWORD`.

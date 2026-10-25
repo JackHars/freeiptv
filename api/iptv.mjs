@@ -305,19 +305,24 @@ async function serveTitle(req, res, kind, id, params, base) {
     ({ tmdb, season, episode } = entry);
   }
   let lastError;
+  const failedProviders = [];
+  const controller = new AbortController();
+  res.once('close', () => controller.abort());
   for (let attempt = 0; attempt < 2; attempt++) {
     if (res.destroyed) return;
     try {
-      const stream = await resolveStream(tmdb, kind === 'movie' ? 'movie' : 'series', season, episode, null, attempt > 0 || params.get('fresh') === '1');
+      const stream = await resolveStream(tmdb, kind === 'movie' ? 'movie' : 'series', season, episode, null, attempt > 0 || params.get('fresh') === '1', { exclude: failedProviders, signal: controller.signal });
       if (!stream.master) throw new HttpError(502, 'No playable stream returned.');
+      failedProviders.push(stream.provider);
+      console.info(`IPTV playback: ${stream.provider} / ${stream.server} (${kind} ${tmdb})`);
       await serveMedia(req, res, stream.master, base, async (playlist, original, sourceURL) => {
         if (/#EXT-X-MEDIA:.*TYPE=SUBTITLES/.test(original)) return playlist;
         try {
           const tracks = await subtitles.tracks({ kind, tmdb, season, episode });
           if (!tracks.length) return playlist;
-          const timing = await subtitles.timeline(original, sourceURL);
+          const timing = await subtitles.timeline(original, sourceURL, stream.headers);
           // A direct media playlist needs a master before alternate renditions can be declared.
-          if (!/#EXT-X-STREAM-INF:/.test(original)) playlist = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=8000000\n${assetURL(base, sourceURL, 'playlist')}\n`;
+          if (!/#EXT-X-STREAM-INF:/.test(original)) playlist = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=8000000\n${assetURL(base, sourceURL, 'playlist', stream.headers)}\n`;
           const result = attachSubtitles(playlist, tracks, track => `${base}/iptv/subtitles/${mediaToken(track.url, { sub: timing })}/playlist.m3u8`);
           console.info('IPTV subtitles', JSON.stringify({ kind, tmdb, season, episode, tracks: tracks.length }));
           return result;
@@ -326,11 +331,11 @@ async function serveTitle(req, res, kind, id, params, base) {
           console.warn('IPTV subtitles unavailable', JSON.stringify({ kind, tmdb, season, episode, error: error.message }));
           return playlist;
         }
-      });
+      }, stream.headers);
       return;
     } catch (error) {
       lastError = error;
-      if (res.headersSent || error.status === 404 || error.status === 400) throw error;
+      if (res.headersSent || controller.signal.aborted || !failedProviders.length || error.status === 404 || error.status === 400) throw error;
     }
   }
   throw lastError;

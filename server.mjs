@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { handleApiRequest } from './api/platform.mjs';
 import { handleIPTV } from './api/iptv.mjs';
 
-const routes = new Set(['api', 'health', 'servers', 'search', 'browse', 'title', 'episodes', 'images', 'resolve', 'master', 'watch', 'proxy']);
+const routes = new Set(['api', 'health', 'providers', 'servers', 'search', 'browse', 'title', 'episodes', 'images', 'resolve', 'master', 'watch', 'proxy']);
 
 export function requestLabel(target) {
   const url = new URL(target, 'http://local');

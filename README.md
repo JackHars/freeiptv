@@ -29,6 +29,7 @@ above a live request log.
 | **Player compatibility** | Xtream-compatible login and M3U playlists |
 | **Movies and series** | TMDB listings, artwork, seasons, and episode details |
 | **Live sports** | Scheduled events, a sports-only playlist, and an XMLTV guide |
+| **Provider fallback** | Cinejoy, Atlantic, Tvids, Zstream, Vidrift, and VidSrc |
 | **HLS playback** | Local stream relay, highest advertised video quality, and supported subtitles |
 | **Terminal dashboard** | Fixed connection panel with incoming requests and server activity below |
 | **Local accounts** | Choose your login at startup and keep it across restarts |
@@ -113,7 +114,7 @@ IPTV player on your LAN
 FreeIPTV on your computer
         |
         +-- TMDB ------------------> Movie and series metadata
-        +-- Cinejoy playback API --> Movie and episode HLS sources
+        +-- Six playback providers -> Movie and episode HLS sources
         +-- Sports event pages ----> Schedules and published HLS sources
         |
         +-- Local HLS relay -------> Playlists, segments, keys, and subtitles
@@ -128,18 +129,40 @@ guide. **TMDB supplies metadata, not video.**
 
 ### 2. Resolve playback on demand
 
-When you play a movie or episode, the server sends its TMDB ID, plus season and
-episode numbers when applicable, to Cinejoy's **`api.wing.st`** playback backend.
-The bundled **`api/crush.wasm`** helper encodes the request in the site's
-**`lumen-gate`** format, and the server decrypts the reply. It tries the backend's
-video mirrors in order until one returns an HLS `.m3u8` playlist.
+When you play a movie or episode, FreeIPTV tries these providers in order and
+uses the first source that passes its HLS and video-segment checks:
 
-### 3. Reproduce the web player's requests
+| Order | Provider | How playback is resolved |
+| --- | --- | --- |
+| 1 | **Cinejoy** | Sends the TMDB ID through `api.wing.st` using the bundled `crush.wasm` lumen-gate encoder, then decrypts the reply and tries its video mirrors. |
+| 2 | **Atlantic** | Tries Athena, Aphrodite, and Moscow; Moscow's encrypted source URL is decoded with AES-GCM. |
+| 3 | **Tvids / Xpass** | Reads the embed's data URL, derives its AES-GCM key, decrypts the backup list, and checks the returned playlists. |
+| 4 | **Zstream** | Calls the shared Cinecat / P-Stream scraper and selects a working HLS source with its supplied playback headers. |
+| 5 | **Vidrift** | Gets a playback token from the 7movies family, loads Vidrift's boot response, and tries its Bigbang and Vexon HLS sources. |
+| 6 | **VidSrc** | Converts TMDB to IMDb, follows the gate/player chain, extracts rotating key tables from the supplied WASM, decrypts the URL list with ChaCha20, and obtains a media-host token. |
 
-Movie and episode media requests carry a browser-style **User-Agent** and the
-**`Origin`** and **`Referer`** of **`cinejoy.pk`**. This reproduces the headers used
-by that web player when fetching its streams. It does not grant access to a
-stream the source has not published.
+Series requests include season and episode numbers. Failed providers are skipped;
+successful resolutions are cached for five minutes. Automatic attempts have a
+30-second budget per provider and a 180-second overall budget. Availability varies
+by title and provider. Direct MP4-only results are skipped because this server
+serves HLS to IPTV players.
+
+All six adapters run inside the existing Node.js process. The new adapters were
+ported from Red Hermes' October 25, 2026 research using Node's built-in crypto.
+
+### 3. Reproduce each web player's requests
+
+Each provider supplies its own browser-style **User-Agent**, **Origin**, and
+**Referer**. FreeIPTV retains these headers when checking a source and when
+relaying its playlists, video segments, encryption keys, and alternate tracks.
+Cinejoy, for example, uses the `cinejoy.pk` Origin and Referer. This reproduces
+the web player's request headers; it does not grant access to an unpublished
+stream.
+
+The resolver checks the highest advertised video rendition and samples its first
+segment before accepting it. HTML error pages and image-based placeholder feeds
+are rejected so another source or provider can be tried. The terminal log shows
+which provider was selected.
 
 ### 4. Relay the stream to your player
 
@@ -201,6 +224,12 @@ With the server running, check its health:
 
 ```sh
 curl http://localhost:8091/health
+```
+
+Test provider resolution, fallback, encryption, and the local media relay:
+
+```sh
+npm run test:providers
 ```
 
 For the available test commands and API checks, see [IPTV.md](IPTV.md#checks).

@@ -144,8 +144,8 @@ export function createSubtitleService({ fetchResource }) {
     entry.promise.catch(() => { if (cache.get(key) === entry) cache.delete(key); });
     return entry.promise;
   }
-  async function read(url, limit = MAX_BYTES, prefix = false) {
-    return limitedBody(await fetchResource(url, 12000, prefix ? { headers: { Range: `bytes=0-${limit - 1}` } } : {}), limit, prefix);
+  async function read(url, limit = MAX_BYTES, prefix = false, headers = {}) {
+    return limitedBody(await fetchResource(url, 12000, { headers: { ...headers, ...(prefix ? { Range: `bytes=0-${limit - 1}` } : {}) } }), limit, prefix);
   }
   return {
     tracks({ kind, tmdb, season, episode }) {
@@ -160,12 +160,12 @@ export function createSubtitleService({ fetchResource }) {
       // At most eight 4 MiB source files, parsed on demand; no video cache.
       return cached(files, url, 3600000, 8, async () => parseSubtitles((await read(url)).toString('utf8')));
     },
-    timeline(master, upstream) {
-      return cached(timelines, upstream, 300000, 100, async () => {
+    timeline(master, upstream, headers = {}) {
+      return cached(timelines, JSON.stringify([upstream, headers]), 300000, 100, async () => {
         const isMaster = /#EXT-X-STREAM-INF:/.test(master);
         const variant = isMaster ? master.split(/\r?\n/).find(line => line.trim() && !line.startsWith('#')) : null;
         const url = variant ? new URL(variant.trim(), upstream).href : upstream;
-        const playlist = isMaster ? (await read(url)).toString('utf8') : master;
+        const playlist = isMaster ? (await read(url, MAX_BYTES, false, headers)).toString('utf8') : master;
         if (!playlist.includes('#EXT-X-ENDLIST')) throw new Error('Sidecar subtitles require a complete VOD playlist.');
         if (/#EXT-X-DISCONTINUITY(?:\r?\n|$)/.test(playlist)) throw new Error('Sidecar timing across discontinuities is not supported.');
         const duration = [...playlist.matchAll(/#EXTINF:([\d.]+)/g)].reduce((sum, match) => sum + Number(match[1]), 0);
@@ -174,7 +174,7 @@ export function createSubtitleService({ fetchResource }) {
         const initURL = playlist.match(/#EXT-X-MAP:.*URI="([^"]+)"/)?.[1];
         let pts = 0;
         if (first && !/#EXT-X-KEY:.*METHOD=(?!NONE)/.test(playlist)) {
-          const [segment, init] = await Promise.all([read(new URL(first.trim(), url).href, 65536, true), initURL ? read(new URL(initURL, url).href, 1024 * 1024) : null]);
+          const [segment, init] = await Promise.all([read(new URL(first.trim(), url).href, 65536, true, headers), initURL ? read(new URL(initURL, url).href, 1024 * 1024, false, headers) : null]);
           pts = initialTimestamp(segment, init);
         }
         return { duration, pts };
