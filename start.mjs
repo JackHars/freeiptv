@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { createServer } from './server.mjs';
 import { initializeEngine } from './api/platform.mjs';
 import { initializeIPTV, setIPTVCredentials, warmIPTV } from './api/iptv.mjs';
-import { promptForLogin } from './api/login-tui.mjs';
+import { promptForLogin, promptForTMDB } from './api/login-tui.mjs';
+import { tmdbConfigured, saveTMDBCredential } from './api/tmdb.mjs';
 import { settingsStore, dataDirectory } from './api/settings.mjs';
 import { createDashboard } from './api/dashboard.mjs';
 
@@ -31,6 +32,10 @@ await initializeIPTV(config.iptv);
 if (newLogin) {
   await setIPTVCredentials(newLogin.username, newLogin.password);
   console.log('IPTV login saved.');
+}
+if (!tmdbConfigured()) {
+  try { await promptForTMDB({ saveCredential: saveTMDBCredential }); }
+  catch (error) { console.error(error.message); process.exit(1); }
 }
 await initializeEngine();
 const port = Number(process.env.PORT || settingsStore.config().server.port);

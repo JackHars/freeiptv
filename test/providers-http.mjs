@@ -2,16 +2,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initializeIPTV } from '../api/iptv.mjs';
-import { createServer } from '../server.mjs';
 
 // Network fixtures exercise the real HTTP routes, resolver, signed relay and player headers.
 test('movie playback and legacy API relay keep provider headers on nested HLS, audio, keys, maps and byte ranges', async () => {
   const fetchOriginal = globalThis.fetch;
   const directory = await mkdtemp(join(tmpdir(), 'freeiptv-providers-'));
+  process.env.FREEIPTV_DATA_DIR = directory;
+  const { initializeIPTV } = await import('../api/iptv.mjs');
+  const { createServer } = await import('../server.mjs');
+  const { settingsStore } = await import('../api/settings.mjs');
   const required = { origin: 'https://provider.test', referer: 'https://provider.test/player' };
   const observed = [];
   let unstableReads = 0, cinejoyRequests = 0;
@@ -57,7 +59,8 @@ test('movie playback and legacy API relay keep provider headers on nested HLS, a
       return new Response('Unavailable fixture provider', { status: 404 });
     };
     await initializeIPTV({ sportsDirectory: directory });
-    const login = JSON.parse(await readFile(new URL('../data/iptv.json', import.meta.url)));
+    await settingsStore.setTMDBCredential('fixture-tmdb-credential');
+    const login = settingsStore.get();
     server = createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening');
     const base = `http://127.0.0.1:${server.address().port}`;
     const signedIn = await fetchOriginal(base + '/ui/login', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:login.username,password:login.password})});

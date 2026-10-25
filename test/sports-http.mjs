@@ -1,15 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
-import { initializeIPTV } from '../api/iptv.mjs';
-import { createServer } from '../server.mjs';
 
 test('sports Xtream import, EPG, live M3U, auth and live HLS proxy preserve quality/headers/ranges', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'cinejoy-sports-http-'));
+  process.env.FREEIPTV_DATA_DIR = directory;
+  const { initializeIPTV } = await import('../api/iptv.mjs');
+  const { createServer } = await import('../server.mjs');
+  const { settingsStore } = await import('../api/settings.mjs');
   const referer = 'https://player.test/embed', origin = 'https://player.test';
   const upstream = http.createServer((req, res) => {
     if (req.headers.referer !== referer || req.headers.origin !== origin) { res.writeHead(403); return res.end('Missing player headers'); }
@@ -28,7 +30,8 @@ test('sports Xtream import, EPG, live M3U, auth and live HLS proxy preserve qual
   const requests = [];
   try {
     await initializeIPTV({ sportsDirectory: directory, sportsSource: source });
-    const settings = JSON.parse(await readFile(new URL('../data/iptv.json', import.meta.url)));
+    await settingsStore.setTMDBCredential('fixture-tmdb-credential');
+    const settings = settingsStore.get();
     server = createServer({ onRequest: event => requests.push(event) }); server.listen(0, '127.0.0.1'); await once(server, 'listening');
     const base = `http://127.0.0.1:${server.address().port}`;
     for (const path of ['/iptv', '/docs', '/iptv/setup']) {

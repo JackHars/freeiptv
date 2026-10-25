@@ -19,6 +19,7 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
    if(new URL(url).hostname==='api.zstream.mov')return new Response(JSON.stringify({streams:[{type:'hls',playlist:'https://fixture.test/master'}]}));
    if(url==='https://fixture.test/master')return new Response('#EXTM3U\n#EXTINF:6,\nseg.ts\n');
    if(url==='https://fixture.test/seg.ts')return new Response(Buffer.alloc(188*4,0x47));
+   if(new URL(url).hostname==='api.themoviedb.org' && new URL(url).pathname==='/3/configuration'){if(options.headers.authorization==='Bearer invalid-fixture-credential')return new Response('{}',{status:401});return new Response(JSON.stringify({images:{secure_base_url:'https://image.tmdb.org/t/p/'}}));}
    if(String(url).includes('api.themoviedb.org'))return new Response(JSON.stringify({results:[],genres:[],id:550,title:'Fixture Movie'}));
    return new Response('not found',{status:404});
   };
@@ -27,9 +28,21 @@ test('web login, admin settings, multiple Xtream users, session revocation, sign
   assert.equal((await request('/vendor/hls.js')).status,200);assert.equal((await request('/ui/settings')).status,401);
   assert.equal((await request('/ui/login',{method:'POST',body:{username:'owner',password:'password123'},origin:'https://evil.test'})).status,403);
   let r=await request('/ui/login',{method:'POST',body:{username:'owner',password:'password123'},origin:base});assert.equal(r.status,200);const admin=r.headers.get('set-cookie').split(';')[0];assert.match(r.headers.get('set-cookie'),/HttpOnly/);
+  assert.equal((await request('/ui/session',{cookie:admin}).then(r=>r.json())).setupRequired,true);
+  assert.equal((await request('/resolve?tmdb=550',{cookie:admin})).status,428);
+  assert.equal((await request('/player_api.php?username=owner&password=password123')).status,428);
+  r=await request('/ui/browse',{cookie:admin});assert.equal(r.status,428);assert.equal((await r.json()).code,'TMDB_SETUP_REQUIRED');
+  assert.equal((await request('/ui/tmdb',{method:'PUT',cookie:admin,body:{credential:'fixture-tmdb-credential'},origin:'https://evil.test'})).status,403);
+  assert.equal((await request('/ui/tmdb',{method:'PUT',cookie:admin,body:{credential:'invalid-fixture-credential'}})).status,400);
+  assert.equal((await request('/ui/tmdb',{method:'PUT',cookie:admin,body:{credential:'fixture-tmdb-credential'}})).status,200);
+  r=await request('/ui/settings',{cookie:admin});const configText=await r.text();assert.ok(!configText.includes('fixture-tmdb-credential'));assert.equal(JSON.parse(configText).config.metadata.configured,true);
+  assert.equal((await request('/ui/session',{cookie:admin}).then(r=>r.json())).setupRequired,false);
+  assert.ok(!(await request('/ui/activity',{cookie:admin}).then(r=>r.text())).includes('fixture-tmdb-credential'));
+  assert.equal((await request('/ui/settings',{method:'PUT',cookie:admin,body:{metadata:{tmdbCredential:'bypass-credential'}}})).status,400);
   r=await request('/ui/users',{method:'POST',cookie:admin,body:{username:'viewer',password:'viewerpass'}});assert.equal(r.status,201);const viewer=(await r.json()).user;assert.ok(!('password'in viewer));
   r=await request('/ui/login',{method:'POST',body:{username:'viewer',password:'viewerpass'}});const cookie=r.headers.get('set-cookie').split(';')[0];
   assert.equal((await request('/ui/settings',{cookie})).status,403);
+  assert.equal((await request('/ui/tmdb',{method:'PUT',cookie,body:{credential:'fixture-tmdb-credential'}})).status,403);
   assert.equal((await request('/resolve?tmdb=550')).status,401);assert.equal((await request('/resolve?tmdb=550',{cookie})).status,403);assert.equal((await request('/proxy?u=https://fixture.test/master',{cookie})).status,403);assert.equal((await request('/ui/users',{cookie,method:'POST',body:{username:'other',password:'otherpass'}})).status,403);
   assert.equal((await request('/ui/connections?user='+owner.id,{cookie})).status,403);
   r=await request('/ui/connections',{cookie});const links=await r.json();assert.equal(links.username,'viewer');assert.ok(links.playlist.includes('username=viewer'));assert.ok(!links.playlist.includes('password=password123'));

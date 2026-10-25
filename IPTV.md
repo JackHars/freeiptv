@@ -1,7 +1,9 @@
 # IPTV connection and API
 
 Run `npm start` in a terminal. On the first launch, choose a username and
-password in the terminal setup screen. On later interactive launches, enter
+password in the terminal setup screen, then provide your own TMDB API key or
+API Read Access Token. FreeIPTV validates it before the server starts. On later
+interactive launches, enter
 new values or press Enter to keep the saved ones. The server starts after
 setup and shows the Xtream server address, login, M3U playlist URLs, and
 XMLTV guide URL in a fixed terminal panel. Incoming requests scroll below it.
@@ -110,6 +112,26 @@ selected master fails before playback starts, the IPTV route makes one further
 attempt excluding that provider. It cannot switch sources seamlessly in the middle
 of a playing segment; reopen the title if an upstream stream later fails.
 
+## TMDB configuration
+
+A personal TMDB API key or API Read Access Token is required. Obtain it from
+[TMDB account settings](https://www.themoviedb.org/settings/api), then enter it
+in the terminal setup or **Settings → TMDB** in an already running web instance.
+Both authentication methods are supported as described in
+[TMDB’s authentication guide](https://developer.themoviedb.org/docs/authentication-application).
+
+A missing credential blocks catalog and IPTV use. Terminal startup requires
+interactive setup rather than silently starting with a shared key. The web
+interface directs administrators to connect TMDB; viewers see a setup-pending
+message. Metadata settings are available without a key so an administrator can
+finish setup.
+
+Replacements are checked with TMDB before saving. A rejected credential or a
+network failure leaves the previous value intact. Changes apply immediately to
+new metadata requests. The saved value is never included in settings responses,
+request logs, or browser storage. It lives in `data/iptv.json`, which is excluded
+from Git, alongside other local configuration.
+
 ## Local data and configuration
 
 `data/iptv.json` stores users, the owner account, saved server/provider/catalog
@@ -140,7 +162,7 @@ be disabled, expired, demoted, or deleted.
 ## Checks
 
 Run `npm run check`, `npm run test:login`, `npm run test:catalog-import`,
-`npm run test:iptv-quality`, `npm run test:providers`, `npm run test:web`, and `npm run test:sports` for offline checks.
+`npm run test:iptv-quality`, `npm run test:providers`, `npm run test:web`, `npm run test:tmdb`, and `npm run test:sports` for offline checks.
 With a populated catalog and running server, `npm run test:iptv-catalog`
 checks Xtream movie and series responses. It reads the local saved login;
 for a remote server, set `IPTV_BASE`, `IPTV_USERNAME`, and `IPTV_PASSWORD`.

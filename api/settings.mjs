@@ -11,6 +11,7 @@ export const defaultConfig = () => ({
   server: { name: 'FreeIPTV', host: '0.0.0.0', port: 8091, publicUrl: '' },
   playback: { order: [...providerNames], enabled: [...providerNames], providerTimeout: 30, totalTimeout: 180, cacheSeconds: 300, quality: 'highest' },
   catalog: { pages: 2000, refreshHours: 12 },
+  metadata: { tmdbCredential: '' },
 });
 export const problem = (status, message) => Object.assign(new Error(message), { status });
 export function equal(a, b) { const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || '')); return x.length === y.length && timingSafeEqual(x, y); }
@@ -64,7 +65,7 @@ export function createSettingsStore(directory) {
     defaults.server = { ...defaults.server, ...Object.fromEntries(['host','port'].filter(k => legacy[k] !== undefined).map(k => [k, legacy[k]])) };
     if (legacy.iptv?.catalogPages) defaults.catalog.pages = legacy.iptv.catalogPages;
     if (legacy.iptv?.refreshHours) defaults.catalog.refreshHours = legacy.iptv.refreshHours;
-    state.config ||= defaults; state.pinned ||= [];
+    state.config ||= defaults; state.config.metadata ||= { tmdbCredential: '' }; state.pinned ||= [];
     await save(state); return state;
   })();
   const mutate = operation => {
@@ -75,9 +76,19 @@ export function createSettingsStore(directory) {
     events, initialize, mutate,
     get: () => state,
     config: () => state?.config || defaultConfig(),
+    publicConfig() {
+      const config = structuredClone(state?.config || defaultConfig());
+      config.metadata = { configured: Boolean(config.metadata.tmdbCredential) };
+      return config;
+    },
+    async setTMDBCredential(credential) {
+      if (typeof credential !== 'string' || !/^[A-Za-z0-9._-]{16,4096}$/.test(credential)) throw problem(400, 'A TMDB credential is required.');
+      return mutate(next => { next.config.metadata = { tmdbCredential: credential }; });
+    },
     user: id => state?.users.find(u => u.id === id),
     authenticate(username, password) { return state?.users.find(u => activeUser(u) && equal(u.username, username) && equal(u.password, password)); },
     async configure(config) {
+      if ('metadata' in config) throw problem(400, 'Use TMDB settings to validate and save your credential.');
       return mutate(next => { const merged = structuredClone(next.config); for (const section of ['server','playback','catalog']) if (config[section]) merged[section] = { ...merged[section], ...config[section] }; validateConfig(merged); next.config = merged; });
     },
     async upsertUser(input, actor, id) {

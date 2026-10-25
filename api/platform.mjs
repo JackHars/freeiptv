@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { webcrypto as crypto } from 'node:crypto';
 import { settingsStore } from './settings.mjs';
+import { requireTMDBCredential, requestTMDB } from './tmdb.mjs';
 import { createProviderResolver, PROVIDERS, mediaHeaders } from './providers.mjs';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
@@ -15,8 +16,6 @@ const BW = new TextDecoder();
 const LUMEN_TAG = 'lumen-gate-v2';
 const G = 32, EPH = 65, OFF = G + 1 + EPH;
 
-const TMDB_KEY = '8476a7ab80ad76f0936744df0430e67c';   // cinejoy's own frontend key
-const TMDB_BASE = 'https://api.themoviedb.org/3';
 const IMG_BASE = 'https://image.tmdb.org/t/p/';
 const HDRS = {
   'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
@@ -122,16 +121,11 @@ const tmdb_cache = new TtlCache(TMDB_TTL);
 const servers_cache = new TtlCache(SERVERS_TTL);
 
 async function tmdb_get(pth, extra = {}, signal) {
-  const params = { api_key: TMDB_KEY, language: 'en-US', ...extra };
-  const key = pth + '?' + new URLSearchParams(params).toString();
+  const credential = requireTMDBCredential();
+  const key = JSON.stringify([credential, pth, extra]);
   const hit = tmdb_cache.get(key);
   if (hit) return hit;
-  const r = await fetch(TMDB_BASE + pth + '?' + new URLSearchParams(params), {
-    headers: { 'user-agent': 'Mozilla/5.0' },
-    signal: AbortSignal.any([AbortSignal.timeout(30000), ...(signal ? [signal] : [])]),
-  });
-  if (!r.ok) throw new Error(`TMDB HTTP ${r.status} for ${pth}`);
-  const data = await r.json();
+  const data = await requestTMDB(pth, extra, { credential, signal });
   tmdb_cache.set(key, data);
   return data;
 }

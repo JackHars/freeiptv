@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { handleApiRequest } from './api/platform.mjs';
 import { handleWeb, recordActivity } from './api/web.mjs';
 import { requireSession, sameOrigin } from './api/sessions.mjs';
+import { requireTMDBCredential } from './api/tmdb.mjs';
 import { initializeIPTV, handleIPTV } from './api/iptv.mjs';
 
 const routes = new Set(['api', 'health', 'providers', 'servers', 'search', 'browse', 'title', 'episodes', 'images', 'resolve', 'master', 'watch', 'proxy']);
@@ -49,6 +50,7 @@ export function createServer({ onRequest } = {}) {
         if (!['/health', '/api', '/providers'].includes(request.pathname)) {
           await initializeIPTV();
           requireSession(req, true);
+          requireTMDBCredential();
           if (req.method !== 'GET') sameOrigin(req);
         }
         if (req.method === 'OPTIONS') {

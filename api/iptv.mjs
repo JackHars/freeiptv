@@ -5,6 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { settingsStore, dataDirectory as settingsDirectory, activeUser } from './settings.mjs';
+import { requireTMDBCredential } from './tmdb.mjs';
 import { requireSession } from './sessions.mjs';
 import { getCatalogData, resolveStream, fetchUpstream } from './platform.mjs';
 import { collectCatalog, catalogPageLimit, MAX_CATALOG_PAGES } from './catalog.mjs';
@@ -87,6 +88,7 @@ async function pool(items, operation, concurrency = 4) {
 
 export async function refreshCatalog() {
   await initializeIPTV();
+  requireTMDBCredential();
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     const next = await collectCatalog({
@@ -409,6 +411,7 @@ async function handleIPTVRequest(req, res) {
   if (!relevant) return false;
   try {
     await initializeIPTV();
+    requireTMDBCredential();
     if (req.method === 'OPTIONS') {
       if (path.startsWith('/iptv/') && !/^\/iptv\/(media|subtitles)\//.test(path)) manageOrigin(req);
       res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Range' }); res.end(); return true;

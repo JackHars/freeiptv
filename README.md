@@ -46,6 +46,7 @@ a live request log.
 ### Requirements
 
 - **Node.js 24 or newer**, with npm and the built-in SQLite module
+- Your own [TMDB API key or API Read Access Token](https://www.themoviedb.org/settings/api)
 - Internet access for metadata and streams
 - An IPTV player that supports Xtream Codes or M3U
 
@@ -64,6 +65,15 @@ On first launch, choose a **username** and **password**, then confirm the
 password. Password entry is hidden. This becomes the **owner administrator** for
 both the website and IPTV apps. There are **no default credentials**.
 
+Next, paste your **TMDB API key or API Read Access Token** into the masked setup
+prompt. Get one from the API section of your TMDB account settings. FreeIPTV
+checks it with TMDB before saving it; setup cannot be skipped. No TMDB credential
+is included in the repository.
+
+Already installed an older version? Your next launch will require this same step
+if you have not saved your own TMDB credential. A running web instance with no
+credential shows the required connection screen after login.
+
 On later interactive launches, press **Enter** to keep a saved value or enter a
 replacement. If you change your login, update it in your IPTV apps too. To run
 without an interactive terminal, complete the first setup in a terminal; later
@@ -81,6 +91,8 @@ Use the server’s LAN address on another device.
 - **Live:** Browse scheduled sports and try available broadcasts.
 - **Settings → IPTV connections:** Copy Xtream credentials, M3U playlists, and the
   XMLTV guide. Administrators can select any account; viewers see their own.
+- **Settings → TMDB:** Verify and replace the credential used for metadata. Only
+  administrators can change it; the saved value is never returned to the browser.
 - **Settings → Providers:** Drag providers into fallback order or use the arrow
   buttons. Enable sources individually, adjust timeouts and caching, and choose
   highest available or adaptive video quality.
@@ -250,7 +262,9 @@ trusted LAN. Other devices must be able to reach the host computer.
 The server creates `data/` on first launch. It holds accounts, server settings,
 signing secret, catalog, and SQLite index. Accounts and settings are saved in
 `data/iptv.json`; passwords are stored there so IPTV connection links can be
-shown and copied. Keep this directory private and back it up.
+shown and copied. Your TMDB credential is stored in the same private file,
+separately from playback providers, and is sent only to TMDB. The directory is
+excluded from Git. Keep it private and back it up.
 
 Existing single-account installations migrate automatically. The existing login
 becomes the owner, and `data/iptv.pre-users.json` keeps a one-time backup of the
@@ -278,6 +292,7 @@ Test provider resolution, fallback, encryption, and the local media relay:
 ```sh
 npm run test:providers
 npm run test:web
+npm run test:tmdb
 ```
 
 For the available test commands and API checks, see [IPTV.md](IPTV.md#checks).
