@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { webcrypto as crypto } from 'node:crypto';
 import { settingsStore } from './settings.mjs';
-import { requireTMDBCredential, requestTMDB } from './tmdb.mjs';
+import { getMetadata } from './metadata.mjs';
 import { createProviderResolver, PROVIDERS, mediaHeaders } from './providers.mjs';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
@@ -23,7 +23,6 @@ const HDRS = {
   'origin': 'https://cinejoy.pk',
 };
 const SERVER_ORDER = ['Nebula', 'Lisbon', 'Solara', 'Athens'];
-const TMDB_TTL = 120 * 1000;
 const SERVERS_TTL = 60 * 1000;
 
 // ---------------------------------------------------------------- lumen-gate
@@ -117,18 +116,8 @@ class TtlCache {
     }
   }
 }
-const tmdb_cache = new TtlCache(TMDB_TTL);
 const servers_cache = new TtlCache(SERVERS_TTL);
-
-async function tmdb_get(pth, extra = {}, signal) {
-  const credential = requireTMDBCredential();
-  const key = JSON.stringify([credential, pth, extra]);
-  const hit = tmdb_cache.get(key);
-  if (hit) return hit;
-  const data = await requestTMDB(pth, extra, { credential, signal });
-  tmdb_cache.set(key, data);
-  return data;
-}
+const catalog_get = getMetadata;
 
 const mapItem = (x, kind) => ({
   id: x.id,
@@ -210,7 +199,7 @@ async function resolveCinejoy(input, ctx) {
   throw new Error(Object.entries(errors).map(([k, v]) => `${k}: ${v}`).join('; '));
 }
 
-const resolveProviders = createProviderResolver({ cinejoy: resolveCinejoy, getCatalogData: tmdb_get, getPolicy: () => settingsStore.config().playback });
+const resolveProviders = createProviderResolver({ cinejoy: resolveCinejoy, getCatalogData: catalog_get, getPolicy: () => settingsStore.config().playback });
 function proxyLink(url, headers = {}) {
   const query = new URLSearchParams({ u: url });
   const safe = mediaHeaders(headers);
@@ -308,7 +297,7 @@ export async function handleApiRequest(req, res) {
       const query = q('q') || q('query');
       if (!query.trim()) return sendErr(res, 400, 'q (search query) is required');
       const page = Math.max(1, +q('page', '1') || 1);
-      const data = await tmdb_get('/search/multi', { query: query.trim(), page });
+      const data = await catalog_get('/search/multi', { query: query.trim(), page });
       const items = (data.results || [])
         .filter((x) => ['tv', 'movie'].includes(x.media_type))
         .map((x) => mapItem(x, x.media_type || 'movie'));
@@ -328,7 +317,7 @@ export async function handleApiRequest(req, res) {
       };
       const bp = boards[board];
       if (!bp) return sendErr(res, 400, `unknown board '${board}' (use: ${Object.keys(boards).join(', ')})`);
-      const data = await tmdb_get(bp, { page });
+      const data = await catalog_get(bp, { page });
       const items = (data.results || []).map((x) => mapItem(x, kind));
       return sendJson(res, 200, { items, page, pages: data.total_pages || 1, total: data.total_results || 0 });
     }
@@ -337,7 +326,7 @@ export async function handleApiRequest(req, res) {
       const tmdbId = q('tmdb');
       if (!/^\d+$/.test(tmdbId)) return sendErr(res, 400, 'tmdb must be numeric');
       const kind = ['tv', 'series'].includes(q('type', 'tv')) ? 'tv' : 'movie';
-      const data = await tmdb_get(`/${kind}/${tmdbId}`,
+      const data = await catalog_get(`/${kind}/${tmdbId}`,
         kind === 'tv' ? { 'append_to_response': 'credits' } : { 'append_to_response': 'credits' });
       const cast = ((data.credits || {}).cast || []).slice(0, 12)
         .map((c) => ({ name: c.name, character: c.character }));
@@ -365,7 +354,7 @@ export async function handleApiRequest(req, res) {
       const sn = q('season') || q('s') || '1';
       if (!/^\d+$/.test(tmdbId) || !/^\d+$/.test(sn))
         return sendErr(res, 400, 'tmdb and season must be numeric');
-      const data = await tmdb_get(`/tv/${tmdbId}/season/${sn}`);
+      const data = await catalog_get(`/tv/${tmdbId}/season/${sn}`);
       const eps = (data.episodes || []).map((e) => ({
         season: +sn, episode: e.episode_number, name: e.name,
         air_date: e.air_date, vote: e.vote_average ?? null,
@@ -378,7 +367,7 @@ export async function handleApiRequest(req, res) {
       const tmdbId = q('tmdb');
       if (!/^\d+$/.test(tmdbId)) return sendErr(res, 400, 'tmdb must be numeric');
       const kind = ['tv', 'series'].includes(q('type', 'tv')) ? 'tv' : 'movie';
-      const data = await tmdb_get(`/${kind}/${tmdbId}/images`);
+      const data = await catalog_get(`/${kind}/${tmdbId}/images`);
       const backdrops = (data.backdrops || []).filter((b) => b.file_path);
       const posters = (data.posters || []).filter((b) => b.file_path);
       return sendJson(res, 200, {
@@ -482,4 +471,4 @@ export async function initializeEngine() {
 }
 
 // Shared by the IPTV adapter in the same process.
-export { tmdb_get as getCatalogData, resolve as resolveStream, fetchUpstream };
+export { catalog_get as getCatalogData, resolve as resolveStream, fetchUpstream };

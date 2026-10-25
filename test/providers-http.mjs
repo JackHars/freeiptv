@@ -59,7 +59,6 @@ test('movie playback and legacy API relay keep provider headers on nested HLS, a
       return new Response('Unavailable fixture provider', { status: 404 });
     };
     await initializeIPTV({ sportsDirectory: directory });
-    await settingsStore.setTMDBCredential('fixture-tmdb-credential');
     const login = settingsStore.get();
     server = createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening');
     const base = `http://127.0.0.1:${server.address().port}`;

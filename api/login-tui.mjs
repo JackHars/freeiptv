@@ -28,24 +28,6 @@ function readLine(input, output, label, { secret = false, maxLength = 128 } = {}
   });
 }
 
-export async function promptForTMDB({ saveCredential, input = process.stdin, output = process.stdout }) {
-  if (!input.isTTY || !output.isTTY || typeof input.setRawMode !== 'function') throw new Error('TMDB setup is required. Run npm start in a terminal to add your API key or Read Access Token.');
-  emitKeypressEvents(input);
-  const wasRaw = input.isRaw;
-  input.setRawMode(true); input.resume();
-  output.write('\n╭──────────────────────────────╮\n│        TMDB setup            │\n╰──────────────────────────────╯\n');
-  output.write('Your own TMDB credential is required for movie and series information.\nGet one at https://www.themoviedb.org/settings/api\n');
-  try {
-    for (;;) {
-      const credential = await readLine(input, output, 'TMDB API key or Read Access Token: ', { secret: true, maxLength: 4096 });
-      if (!credential.trim()) { output.write('A TMDB credential is required to finish setup.\n'); continue; }
-      output.write('Checking with TMDB…\n');
-      try { await saveCredential(credential); output.write('TMDB connected. You can change this in Settings → TMDB.\n'); return; }
-      catch (error) { output.write(`${error.message}\n`); }
-    }
-  } finally { input.setRawMode(Boolean(wasRaw)); input.pause(); }
-}
-
 export async function promptForLogin({ firstRun, current, input = process.stdin, output = process.stdout }) {
   if (!input.isTTY || !output.isTTY || typeof input.setRawMode !== 'function') {
     throw new Error('IPTV login setup needs an interactive terminal. Run npm start in a terminal first.');

@@ -43,8 +43,8 @@ test('retries transient failures and preserves cached titles when a list or pin 
   let retryCount = 0;
   const previous = { movies: [movie(99), movie(42)], series: [tv(99)] };
   const result = await collectCatalog({ ...fast, previous, pins: [{ type: 'movie', id: 42 }], fetchPage: async route => {
-    if (route === '/movie/42' || route === '/movie/top_rated') throw new Error('TMDB HTTP 404');
-    if (route === '/tv/popular' && retryCount++ === 0) throw new Error('TMDB HTTP 429');
+    if (route === '/movie/42' || route === '/movie/top_rated') throw new Error('Catalog HTTP 404');
+    if (route === '/tv/popular' && retryCount++ === 0) throw new Error('Catalog HTTP 429');
     return { total_pages: 1, results: route.includes('movie') ? [movie(1)] : [tv(1)] };
   } });
   assert.equal(retryCount, 2);
@@ -53,7 +53,7 @@ test('retries transient failures and preserves cached titles when a list or pin 
   assert.equal(result.errors.length, 2);
 });
 
-test('uses date partitions for a 2,000-page budget without ever requesting page 501', async () => {
+test('uses release years for a 2,000-page budget without ever requesting page 501', async () => {
   const requests = [], progress = [];
   let id = 100;
   const result = await collectCatalog({ ...fast, pages: 2000, onProgress: p => progress.push(p), fetchPage: async (route, params) => {

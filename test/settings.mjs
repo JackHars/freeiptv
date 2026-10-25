@@ -28,3 +28,22 @@ test('migrates the legacy owner, persists users and settings, validates permissi
  const reloaded=createSettingsStore(directory);await reloaded.initialize();assert.deepEqual(reloaded.config(),saved.config);assert.equal(reloaded.authenticate('newowner','newpassword').role,'admin');
  }finally{await rm(directory,{recursive:true,force:true});}
 });
+
+test('existing TMDB credentials migrate to an optional disabled fallback and retain a saved preference', async () => {
+ const directory=await mkdtemp(join(tmpdir(),'freeiptv-metadata-settings-'));
+ try {
+  const store=createSettingsStore(directory);await store.initialize();
+  const state=store.get();state.config.metadata={tmdbCredential:'owned-fixture-token'};
+  await writeFile(join(directory,'iptv.json'),JSON.stringify(state));
+  const migrated=createSettingsStore(directory);await migrated.initialize();
+  assert.deepEqual(migrated.publicConfig().metadata,{configured:true,tmdbFallback:false});
+  await migrated.configure({metadata:{tmdbFallback:true}});
+  await migrated.setTMDBCredential('replacement-fixture-token');
+  const reloaded=createSettingsStore(directory);await reloaded.initialize();
+  assert.equal(reloaded.config().metadata.tmdbFallback,true);
+  await assert.rejects(reloaded.configure({metadata:{tmdbFallback:'true'}}),{status:400});
+  await assert.rejects(reloaded.configure({metadata:{tmdbCredential:'bypass-fixture-token'}}),{status:400});
+  await reloaded.setTMDBCredential('');
+  assert.deepEqual(reloaded.publicConfig().metadata,{configured:false,tmdbFallback:false});
+ } finally {await rm(directory,{recursive:true,force:true});}
+});

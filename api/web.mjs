@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { settingsStore, publicUser, problem } from './settings.mjs';
 import { requireSession, sessionUser, requestOrigin, sameOrigin, login, signOut, issueSession } from './sessions.mjs';
 import { initializeIPTV, browserPlay, browserSports, catalogStatus, refreshCatalog } from './iptv.mjs';
-import { tmdbConfigured, requireTMDBCredential, saveTMDBCredential } from './tmdb.mjs';
+import { saveTMDBCredential } from './tmdb.mjs';
 import { getCatalogData } from './platform.mjs';
 
 const activity = [], started = Date.now();
@@ -40,11 +40,10 @@ export async function handleWeb(req, res) {
   try {
     await initializeIPTV();
     if (req.method !== 'GET') sameOrigin(req);
-    if (path === '/ui/login' && req.method === 'POST') { const data = await body(req); return json(res, 200, { user: publicUser(login(req, res, data.username, data.password)), setupRequired: !tmdbConfigured() }), true; }
+    if (path === '/ui/login' && req.method === 'POST') { const data = await body(req); return json(res, 200, { user: publicUser(login(req, res, data.username, data.password)), setupRequired: false }), true; }
     if (path === '/ui/logout' && req.method === 'POST') { signOut(req,res); return json(res,200,{ok:true}),true; }
-    if (path === '/ui/session' && req.method === 'GET') { const user = sessionUser(req); return json(res,200,{ user: user ? publicUser(user) : null, name: settingsStore.config().server.name, setupRequired: !tmdbConfigured() }),true; }
+    if (path === '/ui/session' && req.method === 'GET') { const user = sessionUser(req); return json(res,200,{ user: user ? publicUser(user) : null, name: settingsStore.config().server.name, setupRequired: false }),true; }
     const user = requireSession(req);
-    if (['/ui/browse','/ui/title','/ui/episodes','/ui/play','/ui/live','/ui/refresh'].includes(path)) requireTMDBCredential();
     if (path === '/ui/browse' && req.method === 'GET') {
       const type = url.searchParams.get('type') === 'tv' ? 'tv' : 'movie';
       const query = (url.searchParams.get('q') || '').slice(0,200);
@@ -78,6 +77,7 @@ export async function handleWeb(req, res) {
     }
     if (path === '/ui/settings' && req.method === 'PUT') { await settingsStore.configure(await body(req)); json(res,200,{config:settingsStore.publicConfig()}); return true; }
     if (path === '/ui/tmdb' && req.method === 'PUT') { const input = await body(req); await saveTMDBCredential(input.credential); json(res,200,{configured:true}); return true; }
+    if (path === '/ui/tmdb' && req.method === 'DELETE') { await settingsStore.setTMDBCredential(''); json(res,200,{configured:false}); return true; }
     if (path === '/ui/users' && req.method === 'POST') { const added = await settingsStore.upsertUser(await body(req),user); json(res,201,{user:publicUser(added)}); return true; }
     if (/^\/ui\/users\/[^/]+$/.test(path)) {
       const id = path.split('/').at(-1);
@@ -87,6 +87,6 @@ export async function handleWeb(req, res) {
     if (path === '/ui/refresh' && req.method === 'POST') { refreshCatalog().catch(e=>console.warn('Catalog refresh:',e.message)); json(res,202,{refreshing:true}); return true; }
     if (path === '/ui/activity' && req.method === 'GET') { json(res,200,{items:[...activity].reverse()}); return true; }
     throw problem(404,'Not found.');
-  } catch(e) { json(res,e.status||502,{error:e.message,...(e.code === 'TMDB_SETUP_REQUIRED' ? {code:e.code} : {})}); }
+  } catch(e) { json(res,e.status||502,{error:e.message}); }
   return true;
 }

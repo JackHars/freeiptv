@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { PassThrough, Writable } from 'node:stream';
-import { promptForLogin, promptForTMDB } from '../api/login-tui.mjs';
+import { promptForLogin } from '../api/login-tui.mjs';
 
 function terminal() {
   const input = new PassThrough();
@@ -39,22 +39,4 @@ test('later launches can retain the saved login', async () => {
   await tty.enter('New password [Enter keeps current]:', '');
   assert.deepEqual(await result, { username: 'alice', password: 'StrongPass123!' });
   assert.equal(tty.input.isRaw, false);
-});
-
-
-test('TMDB setup is mandatory, masks long tokens, retries rejected credentials and restores the terminal', async () => {
-  const tty = terminal(), attempts = [];
-  const token = 'eyJ' + 'a'.repeat(220) + '.payload.signature';
-  const result = promptForTMDB({ input: tty.input, output: tty.output, saveCredential: async value => { attempts.push(value); if (value !== token) throw Error('TMDB rejected this credential.'); } });
-  await tty.enter('TMDB API key or Read Access Token:', '');
-  await tty.enter('required to finish setup.', 'bad-token');
-  await tty.enter('TMDB rejected this credential.', token);
-  await result;
-  assert.deepEqual(attempts, ['bad-token', token]);
-  assert.ok(!tty.screen().includes(token)); assert.ok(!tty.screen().includes('bad-token'));
-  assert.equal(tty.input.isRaw, false);
-});
-
-test('TMDB setup cannot be skipped by a noninteractive start', async () => {
-  await assert.rejects(promptForTMDB({input:{isTTY:false},output:{isTTY:false},saveCredential:()=>{throw Error('must not save');}}), /TMDB setup is required/);
 });

@@ -1,9 +1,8 @@
 # IPTV connection and API
 
 Run `npm start` in a terminal. On the first launch, choose a username and
-password in the terminal setup screen, then provide your own TMDB API key or
-API Read Access Token. FreeIPTV validates it before the server starts. On later
-interactive launches, enter
+password in the terminal setup screen. Catalog metadata comes from upstream
+providers; no TMDB credential is required. On later interactive launches, enter
 new values or press Enter to keep the saved ones. The server starts after
 setup and shows the Xtream server address, login, M3U playlist URLs, and
 XMLTV guide URL in a fixed terminal panel. Incoming requests scroll below it.
@@ -37,11 +36,15 @@ downloads are not implemented. A sports-only playlist appends `&content=live`
 to the printed M3U URL. A series-only playlist appends `&series_id=1396`,
 replacing `1396` with the series TMDB ID.
 
-The movie and series catalog comes from TMDB metadata. It is a browsing
+The movie and series catalog comes from the 7Movies / Vidrift catalog endpoints,
+with optional TMDB fallback. It is a browsing
 catalog, not a list of confirmed video files. When playback begins, the
 server tries Cinejoy, Atlantic, Tvids, Zstream, Vidrift, and VidSrc in that
 order by default for a playable HLS source. Settings → Providers controls the
-enabled sources, fallback order, time limits, and resolution cache. VidSrc uses TMDB to look up the IMDb ID.
+enabled sources, fallback order, time limits, and resolution cache. VidSrc needs
+an IMDb ID from the metadata layer. Upstream movie details supply it; series may
+need optional TMDB fallback. If no mapping is available, VidSrc fails for that
+title and playback can use another enabled provider.
 Each source is checked through its highest-quality variant and a video segment
 before selection. Its browser-style headers are retained throughout playback. The IPTV
 server rewrites HLS playlists to local signed links and relays playlists,
@@ -70,17 +73,20 @@ a broadcast from a schedule. The guide has no catch-up or recording support.
 
 The server also exposes JSON endpoints for catalog maintenance:
 
-- `GET /iptv/titles?q=Matrix&type=movie` searches the local TMDB title index.
+- `GET /iptv/titles?q=Matrix&type=movie` searches the upstream catalog, using the configured metadata fallback if needed.
 - `POST /iptv/library` with JSON `{"type":"movie","tmdb":603}` pins a movie;
   use `"type":"tv"` to pin a series for M3U episode inclusion.
-- `POST /iptv/refresh` starts a catalog and title-index refresh.
+- `POST /iptv/refresh` starts a catalog refresh.
 - `POST /iptv/sports/refresh` starts a sports schedule refresh.
 
 Maintenance endpoints require a signed-in browser session. Mutations require an
 administrator and same-origin requests. The
 normal catalog refreshes on demand after 12 hours; sports schedules refresh
-every minute. Large catalog imports can take several minutes. The previous
-catalog stays available during a refresh.
+every minute. A fresh installation publishes a small starter catalog, then
+expands it in the background. Imports are paced at one request per second and
+respect rate-limit retry delays; the default large import can take over an hour.
+The previous catalog stays available during a refresh, and list failures do not
+disable unrelated search or episode endpoints.
 
 ## Playback provider diagnostics
 
@@ -112,32 +118,49 @@ selected master fails before playback starts, the IPTV route makes one further
 attempt excluding that provider. It cannot switch sources seamlessly in the middle
 of a playing segment; reopen the title if an upstream stream later fails.
 
-## TMDB configuration
+## Metadata sources and optional TMDB fallback
 
-A personal TMDB API key or API Read Access Token is required. Obtain it from
-[TMDB account settings](https://www.themoviedb.org/settings/api), then enter it
-in the terminal setup or **Settings → TMDB** in an already running web instance.
-Both authentication methods are supported as described in
-[TMDB’s authentication guide](https://developer.themoviedb.org/docs/authentication-application).
+The primary catalog source is 7Movies (`7movies.ac`), followed by its mirror
+(`7movies.ws`). The adapter uses the site's public list/detail, search, discovery,
+and season endpoints. Search returns the provider's result set; it is not an
+exhaustive offline index of every TMDB title. Imports use popular/highly rated
+lists and release-year discovery. Existing cached titles and pins are retained.
 
-A missing credential blocks catalog and IPTV use. Terminal startup requires
-interactive setup rather than silently starting with a shared key. The web
-interface directs administrators to connect TMDB; viewers see a setup-pending
-message. Metadata settings are available without a key so an administrator can
-finish setup.
+Open **Settings → Metadata** to configure the optional fallback:
 
-Replacements are checked with TMDB before saving. A rejected credential or a
-network failure leaves the previous value intact. Changes apply immediately to
-new metadata requests. The saved value is never included in settings responses,
-request logs, or browser storage. It lives in `data/iptv.json`, which is excluded
-from Git, alongside other local configuration.
+1. Save your own [TMDB API key or API Read Access Token](https://www.themoviedb.org/settings/api).
+2. Enable **Use TMDB as a fallback** and save the setting.
+3. Disable the switch at any time, or remove the credential to disable it too.
+
+The default is upstream-only. Existing installations retain any saved credential
+but start with fallback disabled. Missing credentials never block startup, web
+browsing, IPTV login, playback through other providers, or live sports. A specific
+metadata request can still fail if its sources and cache have no usable answer.
+
+Direct TMDB requests are made only to verify a credential when saving it, or when
+the fallback is enabled and upstream sources cannot supply the requested data.
+The credential is never sent to an upstream streaming provider. Both TMDB
+authentication methods are supported. Rejected replacements and network errors
+leave the previous credential intact. Saved credentials are omitted from settings
+responses, request logs, and browser storage, and kept in the Git-ignored
+`data/iptv.json` file. Changes apply to new requests immediately.
+
+Metadata is cached locally: lists/search for 15 minutes, details/seasons for six
+hours, and TMDB fallback responses for five minutes. If fresh requests fail,
+cached information can be reused for up to seven days. The disk cache is bounded
+and contains metadata, not API credentials or video. Failed responses are not
+cached. Removing or disabling TMDB also prevents reuse of its fallback cache.
+
+Upstream metadata still uses TMDB title IDs and image URLs. Our server no longer
+downloads TMDB's daily title exports. Legacy `data/titles.sqlite` files are left
+untouched but are no longer used.
 
 ## Local data and configuration
 
 `data/iptv.json` stores users, the owner account, saved server/provider/catalog
 settings, the signing secret, and pinned titles. Existing single-user files are
 migrated automatically with a one-time backup in `data/iptv.pre-users.json`.
-`data/catalog.json`, `data/titles.sqlite`, `data/episodes.json`, and
+`data/catalog.json`, `data/metadata-cache.json`, `data/episodes.json`, and
 `data/sports.json` store the catalog and event caches. Keep `data/` if you
 want to preserve the account and catalog across restarts. It is excluded
 from Git. No video library is stored.
@@ -162,7 +185,7 @@ be disabled, expired, demoted, or deleted.
 ## Checks
 
 Run `npm run check`, `npm run test:login`, `npm run test:catalog-import`,
-`npm run test:iptv-quality`, `npm run test:providers`, `npm run test:web`, `npm run test:tmdb`, and `npm run test:sports` for offline checks.
+`npm run test:iptv-quality`, `npm run test:providers`, `npm run test:web`, `npm run test:metadata`, and `npm run test:sports` for offline checks.
 With a populated catalog and running server, `npm run test:iptv-catalog`
 checks Xtream movie and series responses. It reads the local saved login;
 for a remote server, set `IPTV_BASE`, `IPTV_USERNAME`, and `IPTV_PASSWORD`.

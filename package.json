@@ -8,17 +8,18 @@
   },
   "scripts": {
     "start": "node start.mjs",
-    "test:catalog-import": "node --test test/catalog-import.mjs test/title-index.mjs",
+    "test:catalog-import": "node --test test/catalog-import.mjs",
     "test:login": "node --test test/login-tui.mjs",
     "test:dashboard": "node --test test/dashboard.mjs",
     "test:iptv-catalog": "node test/iptv-catalog.mjs",
-    "check": "node --check start.mjs && node --check server.mjs && node --check api/login-tui.mjs && node --check api/dashboard.mjs && node --check api/platform.mjs && node --check api/catalog.mjs && node --check api/title-index.mjs && node --check api/iptv.mjs && node --check api/sports.mjs && node --check api/hls-quality.mjs && node --check api/subtitles.mjs && node --check api/providers.mjs && node --check api/provider-crypto.mjs && node --check api/settings.mjs && node --check api/sessions.mjs && node --check api/web.mjs && node --check public/app.js && node --check api/tmdb.mjs",
+    "check": "node --check start.mjs && node --check server.mjs && node --check api/login-tui.mjs && node --check api/dashboard.mjs && node --check api/platform.mjs && node --check api/catalog.mjs && node --check api/iptv.mjs && node --check api/sports.mjs && node --check api/hls-quality.mjs && node --check api/subtitles.mjs && node --check api/providers.mjs && node --check api/provider-crypto.mjs && node --check api/settings.mjs && node --check api/sessions.mjs && node --check api/web.mjs && node --check public/app.js && node --check api/tmdb.mjs && node --check api/metadata.mjs",
     "test:subtitles": "node --test test/subtitles.mjs",
     "test:iptv-quality": "node --test test/hls-quality.mjs test/subtitles.mjs",
     "test:sports": "node --test test/sports.mjs test/sports-http.mjs",
     "test:providers": "node --test test/providers.mjs test/providers-http.mjs",
     "test:web": "node --test test/settings.mjs test/web-http.mjs",
-    "test:tmdb": "node --test test/tmdb.mjs test/login-tui.mjs"
+    "test:tmdb": "node --test test/tmdb.mjs test/login-tui.mjs",
+    "test:metadata": "node --test test/metadata.mjs test/tmdb.mjs"
   },
   "dependencies": {
     "hls.js": "1.6.16"

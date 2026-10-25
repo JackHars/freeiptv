@@ -4,7 +4,7 @@ const API = 'https://api.themoviedb.org/3';
 export const tmdbConfigured = () => Boolean(settingsStore.config().metadata?.tmdbCredential);
 export function requireTMDBCredential() {
   const credential = settingsStore.config().metadata?.tmdbCredential;
-  if (!credential) throw Object.assign(problem(428, 'Finish TMDB setup in Settings → TMDB before using the catalog.'), { code: 'TMDB_SETUP_REQUIRED' });
+  if (!credential) throw problem(503, 'No TMDB fallback credential is configured. Add one in Settings → Metadata.');
   return credential;
 }
 export function normalizeTMDBCredential(value) {
@@ -25,7 +25,7 @@ export async function requestTMDB(path, extra = {}, { credential = requireTMDBCr
     signal?.throwIfAborted();
     throw problem(503, 'Could not reach TMDB. Check your connection and try again.');
   }
-  if ([401, 403].includes(response.status)) throw problem(validating ? 400 : 503, 'TMDB rejected this credential. Check your API key or Read Access Token in Settings → TMDB.');
+  if ([401, 403].includes(response.status)) throw problem(validating ? 400 : 503, 'TMDB rejected this credential. Check your API key or Read Access Token in Settings → Metadata.');
   if (!response.ok) throw problem(503, `TMDB is unavailable (HTTP ${response.status}). Try again later.`);
   try { return await response.json(); }
   catch { throw problem(502, 'TMDB returned an unreadable response. Try again later.'); }

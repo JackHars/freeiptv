@@ -11,7 +11,7 @@ export const defaultConfig = () => ({
   server: { name: 'FreeIPTV', host: '0.0.0.0', port: 8091, publicUrl: '' },
   playback: { order: [...providerNames], enabled: [...providerNames], providerTimeout: 30, totalTimeout: 180, cacheSeconds: 300, quality: 'highest' },
   catalog: { pages: 2000, refreshHours: 12 },
-  metadata: { tmdbCredential: '' },
+  metadata: { tmdbCredential: '', tmdbFallback: false },
 });
 export const problem = (status, message) => Object.assign(new Error(message), { status });
 export function equal(a, b) { const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || '')); return x.length === y.length && timingSafeEqual(x, y); }
@@ -22,7 +22,7 @@ export function validateLogin(username, password) {
   if (typeof password !== 'string' || !/^[\x21-\x7e]{8,128}$/.test(password)) throw problem(400, 'Use 8–128 printable characters without spaces for the password.');
 }
 function validateConfig(config) {
-  const { server, playback, catalog } = config;
+  const { server, playback, catalog, metadata } = config;
   const number = (value, min, max, label) => { if (!Number.isInteger(value) || value < min || value > max) throw problem(400, `${label} must be between ${min} and ${max}.`); };
   if (typeof server.name !== 'string' || !server.name.trim() || server.name.length > 64) throw problem(400, 'Server name must be 1–64 characters.');
   if (typeof server.host !== 'string' || !/^[a-zA-Z0-9.:[\]-]{1,253}$/.test(server.host)) throw problem(400, 'Enter a valid listen address.');
@@ -40,6 +40,8 @@ function validateConfig(config) {
   number(playback.cacheSeconds, 0, 1800, 'Cache time');
   if (!['highest', 'adaptive'].includes(playback.quality)) throw problem(400, 'Invalid quality preference.');
   number(catalog.pages, 1, 2000, 'Catalog pages'); number(catalog.refreshHours, 1, 168, 'Refresh interval');
+  if (typeof metadata.tmdbFallback !== 'boolean') throw problem(400, 'Invalid TMDB fallback setting.');
+  if (metadata.tmdbFallback && !metadata.tmdbCredential) throw problem(400, 'Save a TMDB credential before enabling its fallback.');
 }
 export function createSettingsStore(directory) {
   const events = new EventEmitter(); let state, init, queue = Promise.resolve();
@@ -65,7 +67,7 @@ export function createSettingsStore(directory) {
     defaults.server = { ...defaults.server, ...Object.fromEntries(['host','port'].filter(k => legacy[k] !== undefined).map(k => [k, legacy[k]])) };
     if (legacy.iptv?.catalogPages) defaults.catalog.pages = legacy.iptv.catalogPages;
     if (legacy.iptv?.refreshHours) defaults.catalog.refreshHours = legacy.iptv.refreshHours;
-    state.config ||= defaults; state.config.metadata ||= { tmdbCredential: '' }; state.pinned ||= [];
+    state.config ||= defaults; state.config.metadata = { ...defaults.metadata, ...state.config.metadata }; state.pinned ||= [];
     await save(state); return state;
   })();
   const mutate = operation => {
@@ -78,18 +80,18 @@ export function createSettingsStore(directory) {
     config: () => state?.config || defaultConfig(),
     publicConfig() {
       const config = structuredClone(state?.config || defaultConfig());
-      config.metadata = { configured: Boolean(config.metadata.tmdbCredential) };
+      config.metadata = { configured: Boolean(config.metadata.tmdbCredential), tmdbFallback: config.metadata.tmdbFallback };
       return config;
     },
     async setTMDBCredential(credential) {
-      if (typeof credential !== 'string' || !/^[A-Za-z0-9._-]{16,4096}$/.test(credential)) throw problem(400, 'A TMDB credential is required.');
-      return mutate(next => { next.config.metadata = { tmdbCredential: credential }; });
+      if (typeof credential !== 'string' || (credential && !/^[A-Za-z0-9._-]{16,4096}$/.test(credential))) throw problem(400, 'Invalid TMDB credential.');
+      return mutate(next => { next.config.metadata.tmdbCredential = credential; if (!credential) next.config.metadata.tmdbFallback = false; });
     },
     user: id => state?.users.find(u => u.id === id),
     authenticate(username, password) { return state?.users.find(u => activeUser(u) && equal(u.username, username) && equal(u.password, password)); },
     async configure(config) {
-      if ('metadata' in config) throw problem(400, 'Use TMDB settings to validate and save your credential.');
-      return mutate(next => { const merged = structuredClone(next.config); for (const section of ['server','playback','catalog']) if (config[section]) merged[section] = { ...merged[section], ...config[section] }; validateConfig(merged); next.config = merged; });
+      if ('metadata' in config && (!config.metadata || typeof config.metadata !== 'object' || Array.isArray(config.metadata) || Object.keys(config.metadata).some(key => key !== 'tmdbFallback'))) throw problem(400, 'Use Metadata settings to validate and save your TMDB credential.');
+      return mutate(next => { const merged = structuredClone(next.config); for (const section of ['server','playback','catalog','metadata']) if (config[section]) merged[section] = { ...merged[section], ...config[section] }; validateConfig(merged); next.config = merged; });
     },
     async upsertUser(input, actor, id) {
       let result;

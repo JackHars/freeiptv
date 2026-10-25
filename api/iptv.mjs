@@ -5,11 +5,9 @@ import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { settingsStore, dataDirectory as settingsDirectory, activeUser } from './settings.mjs';
-import { requireTMDBCredential } from './tmdb.mjs';
 import { requireSession } from './sessions.mjs';
 import { getCatalogData, resolveStream, fetchUpstream } from './platform.mjs';
 import { collectCatalog, catalogPageLimit, MAX_CATALOG_PAGES } from './catalog.mjs';
-import { createTitleIndex } from './title-index.mjs';
 import { createSubtitleService, attachSubtitles, subtitlePlaylist, subtitleSegment } from './subtitles.mjs';
 import { highestQualityPlaylist } from './hls-quality.mjs';
 import { createSportsProvider } from './sports.mjs';
@@ -17,7 +15,6 @@ import { createSportsProvider } from './sports.mjs';
 const dataDirectory = pathToFileURL(settingsDirectory + '/');
 const userContext = new AsyncLocalStorage();
 const currentUser = () => userContext.getStore()?.user || settingsStore.user(settingsStore.get()?.ownerId);
-const titleIndex = createTitleIndex({ directory: fileURLToPath(dataDirectory) });
 const subtitles = createSubtitleService({ fetchResource: fetchUpstream });
 const DAY = 86400000;
 const image = (path, size = 'w500') => path ? `https://image.tmdb.org/t/p/${size}${path}` : '';
@@ -65,7 +62,6 @@ export function initializeIPTV(config = {}) {
     sync(); settingsStore.events.on('change', sync);
     catalog = await readJSON('catalog.json', catalog);
     episodeIndex = await readJSON('episodes.json', {});
-    await titleIndex.initialize();
     sports = createSportsProvider({ directory: config.sportsDirectory || fileURLToPath(dataDirectory), source: config.sportsSource });
     await sports.initialize();
   })();
@@ -86,13 +82,12 @@ async function pool(items, operation, concurrency = 4) {
   return result;
 }
 
-export async function refreshCatalog() {
+export async function refreshCatalog({ initial = false } = {}) {
   await initializeIPTV();
-  requireTMDBCredential();
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     const next = await collectCatalog({
-      fetchPage: getCatalogData, pages: options.catalogPages, previous: catalog, pins: [...settings.pinned],
+      fetchPage: getCatalogData, pages: initial ? 1 : options.catalogPages, previous: catalog, pins: [...settings.pinned],
       onProgress: progress => { refreshProgress = progress; },
     });
     // A title may have been pinned while the background import was running.
@@ -111,12 +106,13 @@ export async function refreshCatalog() {
   return refreshPromise;
 }
 async function ensureCatalog() {
-  if (!catalog.updatedAt) await refreshCatalog();
-  else if (catalog.catalogPages !== options.catalogPages || Date.now() - Date.parse(catalog.updatedAt) > options.refreshHours * 3600000) refreshCatalog().catch(error => console.warn('IPTV catalog refresh:', error.message));
+  // Publish a usable starter catalog before expanding a new installation's library.
+  if (!catalog.updatedAt) await refreshCatalog({ initial: true });
+  if (catalog.catalogPages !== options.catalogPages || Date.now() - Date.parse(catalog.updatedAt) > options.refreshHours * 3600000) refreshCatalog().catch(error => console.warn('IPTV catalog refresh:', error.message));
   return catalog;
 }
 export function warmIPTV() {
-  titleIndex.warm(); ensureCatalog().catch(error => console.warn('IPTV catalog:', error.message));
+  ensureCatalog().catch(error => console.warn('IPTV catalog:', error.message));
   const warmSports = () => sports.ensure().catch(error => console.warn('IPTV sports:', error.message));
   warmSports();
   sportsTimer ||= setInterval(() => sports.refresh().catch(error => console.warn('IPTV sports:', error.message)), 60000).unref();
@@ -411,7 +407,6 @@ async function handleIPTVRequest(req, res) {
   if (!relevant) return false;
   try {
     await initializeIPTV();
-    requireTMDBCredential();
     if (req.method === 'OPTIONS') {
       if (path.startsWith('/iptv/') && !/^\/iptv\/(media|subtitles)\//.test(path)) manageOrigin(req);
       res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Range' }); res.end(); return true;
@@ -423,7 +418,9 @@ async function handleIPTVRequest(req, res) {
       manageOrigin(req); requireSession(req);
       const query = (params.get('q') || '').trim();
       if (query.length < 2 || query.length > 200) throw new HttpError(400, 'Enter a title between 2 and 200 characters.');
-      reply(req, res, 200, { items: titleIndex.search(query, params.get('type')), source: 'local', updatedAt: titleIndex.status().updatedAt || null });
+      const type = ['movie','tv'].includes(params.get('type')) ? params.get('type') : 'multi';
+      const data = await getCatalogData(`/search/${type}`, { query });
+      reply(req, res, 200, { items: data.results.filter(i => !i.adult && ['movie','tv'].includes(i.media_type)).map(i => ({ title: i.title || i.name, type: i.media_type, tmdb: i.id, popularity: i.popularity || 0 })), source: 'catalog' });
       return true;
     }
     if (['/iptv/refresh', '/iptv/library', '/iptv/sports/refresh'].includes(path)) {
@@ -431,7 +428,7 @@ async function handleIPTVRequest(req, res) {
       if (req.method !== 'POST') throw new HttpError(405, 'Use POST.');
       if (!(req.headers['content-type'] || '').includes('application/json')) throw new HttpError(415, 'Use application/json.');
       if (path === '/iptv/sports/refresh') { sports.refresh().catch(error => console.warn('IPTV sports:', error.message)); reply(req, res, 202, { refreshing: true }); return true; }
-      if (path === '/iptv/refresh') { titleIndex.refresh().catch(error => console.warn('Title index:', error.message)); refreshCatalog().catch(error => console.warn('IPTV refresh:', error.message)); reply(req, res, 202, { refreshing: true }); return true; }
+      if (path === '/iptv/refresh') { refreshCatalog().catch(error => console.warn('IPTV refresh:', error.message)); reply(req, res, 202, { refreshing: true }); return true; }
       const input = await requestBody(req);
       const type = input.type === 'tv' ? 'tv' : input.type === 'movie' ? 'movie' : null;
       if (!type) throw new HttpError(400, 'Type must be movie or tv.');

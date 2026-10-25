@@ -28,7 +28,7 @@ a live request log.
 | Feature | What you get |
 | --- | --- |
 | **Player compatibility** | Xtream-compatible login and M3U playlists |
-| **Movies and series** | TMDB listings, artwork, seasons, and episode details |
+| **Movies and series** | Upstream listings, artwork, seasons, and episode details; optional TMDB fallback |
 | **Live sports** | Scheduled events, a sports-only playlist, and an XMLTV guide |
 | **Provider fallback** | Cinejoy, Atlantic, Tvids, Zstream, Vidrift, and VidSrc |
 | **HLS playback** | Local stream relay, highest advertised video quality, and supported subtitles |
@@ -45,8 +45,7 @@ a live request log.
 
 ### Requirements
 
-- **Node.js 24 or newer**, with npm and the built-in SQLite module
-- Your own [TMDB API key or API Read Access Token](https://www.themoviedb.org/settings/api)
+- **Node.js 24 or newer**, with npm
 - Internet access for metadata and streams
 - An IPTV player that supports Xtream Codes or M3U
 
@@ -65,14 +64,10 @@ On first launch, choose a **username** and **password**, then confirm the
 password. Password entry is hidden. This becomes the **owner administrator** for
 both the website and IPTV apps. There are **no default credentials**.
 
-Next, paste your **TMDB API key or API Read Access Token** into the masked setup
-prompt. Get one from the API section of your TMDB account settings. FreeIPTV
-checks it with TMDB before saving it; setup cannot be skipped. No TMDB credential
-is included in the repository.
-
-Already installed an older version? Your next launch will require this same step
-if you have not saved your own TMDB credential. A running web instance with no
-credential shows the required connection screen after login.
+The catalog uses upstream providers automatically. **No TMDB account or API key
+is required.** To add TMDB as a backup source, save your own credential and enable
+its fallback in **Settings → Metadata**. Existing saved credentials are retained;
+the new fallback setting starts disabled.
 
 On later interactive launches, press **Enter** to keep a saved value or enter a
 replacement. If you change your login, update it in your IPTV apps too. To run
@@ -91,8 +86,10 @@ Use the server’s LAN address on another device.
 - **Live:** Browse scheduled sports and try available broadcasts.
 - **Settings → IPTV connections:** Copy Xtream credentials, M3U playlists, and the
   XMLTV guide. Administrators can select any account; viewers see their own.
-- **Settings → TMDB:** Verify and replace the credential used for metadata. Only
-  administrators can change it; the saved value is never returned to the browser.
+- **Settings → Metadata:** Keep upstream providers as the default, optionally
+  enable TMDB fallback, and verify, replace, or remove your TMDB credential. Only
+  administrators can change these settings; saved credentials are never returned
+  to the browser.
 - **Settings → Providers:** Drag providers into fallback order or use the arrow
   buttons. Enable sources individually, adjust timeouts and caching, and choose
   highest available or adaptive video quality.
@@ -160,7 +157,8 @@ IPTV player on your LAN
         v
 FreeIPTV on your computer
         |
-        +-- TMDB ------------------> Movie and series metadata
+        +-- Upstream catalog ------> Movie and series metadata
+        +-- TMDB (optional) -------> Metadata fallback
         +-- Six playback providers -> Movie and episode HLS sources
         +-- Sports event pages ----> Schedules and published HLS sources
         |
@@ -169,10 +167,26 @@ FreeIPTV on your computer
 
 ### 1. Build the catalog
 
-FreeIPTV retrieves movie and series names, artwork, and episode details from
-**TMDB**. A separate sports adapter reads event pages for schedules. These
-listings become Xtream-compatible responses, M3U playlists, and a sports XMLTV
-guide. **TMDB supplies metadata, not video.**
+FreeIPTV reads the public catalog endpoints used by **7Movies / Vidrift**,
+trying its alternate domain if the primary source fails. Those endpoints provide
+popular and highly rated lists, search results, title details, credits, artwork,
+and seasons. The server normalizes their responses for the web UI and Xtream,
+keeps existing title and episode IDs, and caches metadata locally. Catalog imports
+use release-year filters to expand beyond the main lists. New installations get
+a starter catalog first, then expand it in the background at a paced request
+rate. Web browsing and existing IPTV listings remain available during imports.
+
+**TMDB is an optional fallback**, disabled by default. Enable it in
+**Settings → Metadata** after saving your own API key or Read Access Token. It is
+used when upstream information is missing or unavailable. Credentials are checked
+with TMDB when you save them; no shared credential is bundled. Without a fallback,
+cached information remains usable during temporary outages where available.
+
+The upstream sites may themselves obtain information from TMDB, and artwork still
+loads from its image CDN. This removes our mandatory direct API dependency, not
+the use of TMDB IDs or images. Sports schedules use a separate adapter and do not
+require a TMDB credential. Catalog entries describe titles, not confirmed video
+availability.
 
 ### 2. Resolve playback on demand
 
@@ -187,7 +201,7 @@ default order; change it in **Settings → Providers**:
 | 3 | **Tvids / Xpass** | Reads the embed's data URL, derives its AES-GCM key, decrypts the backup list, and checks the returned playlists. |
 | 4 | **Zstream** | Calls the shared Cinecat / P-Stream scraper and selects a working HLS source with its supplied playback headers. |
 | 5 | **Vidrift** | Gets a playback token from the 7movies family, loads Vidrift's boot response, and tries its Bigbang and Vexon HLS sources. |
-| 6 | **VidSrc** | Converts TMDB to IMDb, follows the gate/player chain, extracts rotating key tables from the supplied WASM, decrypts the URL list with ChaCha20, and obtains a media-host token. |
+| 6 | **VidSrc** | Looks up the IMDb ID through the metadata layer, follows the gate/player chain, extracts rotating key tables from the supplied WASM, decrypts the URL list with ChaCha20, and obtains a media-host token. |
 
 Series requests include season and episode numbers. Failed providers are skipped;
 successful resolutions are cached for five minutes by default. Default attempts
@@ -198,6 +212,10 @@ serves HLS to IPTV players.
 
 All six adapters run inside the existing Node.js process. The new adapters were
 ported from Red Hermes' October 25, 2026 research using Node's built-in crypto.
+
+VidSrc needs an IMDb ID. Upstream movie details normally include one; series
+mappings may need the optional TMDB fallback. A missing mapping makes VidSrc fail
+for that title, allowing the other enabled playback providers to be tried.
 
 ### 3. Reproduce each web player's requests
 
@@ -260,9 +278,9 @@ trusted LAN. Other devices must be able to reach the host computer.
 ### Saved data
 
 The server creates `data/` on first launch. It holds accounts, server settings,
-signing secret, catalog, and SQLite index. Accounts and settings are saved in
+signing secret, catalog, and metadata caches. Accounts and settings are saved in
 `data/iptv.json`; passwords are stored there so IPTV connection links can be
-shown and copied. Your TMDB credential is stored in the same private file,
+shown and copied. An optional TMDB credential is stored in the same private file,
 separately from playback providers, and is sent only to TMDB. The directory is
 excluded from Git. Keep it private and back it up.
 
@@ -292,7 +310,7 @@ Test provider resolution, fallback, encryption, and the local media relay:
 ```sh
 npm run test:providers
 npm run test:web
-npm run test:tmdb
+npm run test:metadata
 ```
 
 For the available test commands and API checks, see [IPTV.md](IPTV.md#checks).
