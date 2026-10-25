@@ -22,6 +22,7 @@ const files = new Map([
   ['/app.css', ['../public/app.css','text/css']], ['/app.js', ['../public/app.js','text/javascript']],
   ['/vendor/hls.js', ['../node_modules/hls.js/dist/hls.min.js','text/javascript']],
   ['/favicon.svg', ['../public/favicon.svg','image/svg+xml']],
+  ['/brand.svg', ['../public/brand.svg','image/svg+xml']],
 ]);
 export async function handleWeb(req, res) {
   const url = new URL(req.url, 'http://local'), path = url.pathname;
