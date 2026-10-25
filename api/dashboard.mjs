@@ -13,7 +13,8 @@ export function renderDashboard(details, history, columns = 100, rows = 24) {
   const fields = [
     'freeiptv  |  running  |  Ctrl+C to stop',
     '',
-    `Xtream server: ${details.server}`,
+    `Web interface: ${details.server}`,
+    `Xtream server: ${details.xtreamServer || details.server}`,
     `Username:      ${details.username}`,
     `Password:      ${details.password}`,
     'Stream format: HLS / m3u8',
@@ -77,5 +78,6 @@ export function createDashboard({ output = process.stdout, password = '' } = {})
     for (const [method, original] of Object.entries(previousConsole)) console[method] = original;
     write('\x1b[?25h\x1b[?1049l');
   };
-  return { start, stop, log, logRequest };
+  const update = connection => { details = connection; password = connection.password; redraw(); };
+  return { start, stop, log, logRequest, update };
 }

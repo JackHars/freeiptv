@@ -7,11 +7,11 @@
 Movies, series, and live sports through an Xtream-compatible API and M3U playlists.
 
 ![Node.js 24+](https://img.shields.io/badge/Node.js-24%2B-339933?logo=nodedotjs&logoColor=white)
-![Interface: Terminal](https://img.shields.io/badge/Interface-Terminal-2563eb)
+![Interface: Web + Terminal](https://img.shields.io/badge/Interface-Web_%2B_Terminal-2563eb)
 ![Streaming: HLS](https://img.shields.io/badge/Streaming-HLS-7c3aed)
-![Runtime dependencies: 0](https://img.shields.io/badge/Runtime_dependencies-0-475569)
+![Player: hls.js](https://img.shields.io/badge/Web_player-hls.js-475569)
 
-[Quick start](#quick-start) · [Connect your player](#connect-your-player) · [How it works](#how-it-works) · [API reference](IPTV.md)
+[Quick start](#quick-start) · [Web interface](#web-interface) · [Connect your player](#connect-your-player) · [How it works](#how-it-works) · [API reference](IPTV.md)
 
 </div>
 
@@ -21,8 +21,9 @@ Movies, series, and live sports through an Xtream-compatible API and M3U playlis
 
 FreeIPTV runs on your computer and exposes external web-player streams to IPTV
 apps on your local network. One Node.js process handles the catalog, playback
-resolution, and HLS relay. A terminal dashboard keeps connection details visible
-above a live request log.
+resolution, and HLS relay. A cinematic web interface lets you browse, watch, and
+manage the server. The terminal dashboard keeps connection details visible above
+a live request log.
 
 | Feature | What you get |
 | --- | --- |
@@ -32,7 +33,9 @@ above a live request log.
 | **Provider fallback** | Cinejoy, Atlantic, Tvids, Zstream, Vidrift, and VidSrc |
 | **HLS playback** | Local stream relay, highest advertised video quality, and supported subtitles |
 | **Terminal dashboard** | Fixed connection panel with incoming requests and server activity below |
-| **Local accounts** | Choose your login at startup and keep it across restarts |
+| **Web interface** | Full-screen artwork, animated cards, search, title pages, episodes, and browser playback |
+| **Provider settings** | Reorder or disable sources, set time budgets, and choose adaptive or highest quality |
+| **Multiple accounts** | Administrator and viewer roles, separate IPTV links, account expiry, and access controls |
 
 > **Availability:** Catalog entries and scheduled events do not guarantee a
 > playable stream. Playback depends on external sources and your internet
@@ -58,24 +61,56 @@ npm start
 ```
 
 On first launch, choose a **username** and **password**, then confirm the
-password. Password entry is hidden. There are **no default credentials**.
+password. Password entry is hidden. This becomes the **owner administrator** for
+both the website and IPTV apps. There are **no default credentials**.
 
 On later interactive launches, press **Enter** to keep a saved value or enter a
 replacement. If you change your login, update it in your IPTV apps too. To run
 without an interactive terminal, complete the first setup in a terminal; later
 starts reuse the saved credentials.
 
+## Web interface
+
+Open the **Web interface** address printed in the terminal, or
+`http://localhost:8091` on the host computer, and sign in with your IPTV account.
+Use the server’s LAN address on another device.
+
+- **Discover, Movies, and Series:** Browse artwork, search titles, inspect details,
+  choose a season and episode, and play in the browser. Save titles to **My List**
+  on the current browser.
+- **Live:** Browse scheduled sports and try available broadcasts.
+- **Settings → IPTV connections:** Copy Xtream credentials, M3U playlists, and the
+  XMLTV guide. Administrators can select any account; viewers see their own.
+- **Settings → Providers:** Drag providers into fallback order or use the arrow
+  buttons. Enable sources individually, adjust timeouts and caching, and choose
+  highest available or adaptive video quality.
+- **Settings → Users:** Create, edit, disable, expire, or delete users. Viewers can
+  watch and manage their own login. Administrators also manage server settings
+  and other users. The owner remains an active administrator.
+- **Settings → General, Library, and Activity:** Set the server name and connection
+  address, manage catalog imports, and inspect recent requests.
+
+Most settings apply to new requests immediately. Listen address and port changes
+require a restart. Changing an account or disabling it invalidates its old browser
+sessions and signed media links; update saved credentials in its IPTV apps.
+Browser sessions also end when the server restarts.
+
+The web player uses locally served **hls.js**, or native HLS where supported.
+Codec support depends on the browser; an IPTV app may support formats that your
+browser cannot play. Keyboard focus and reduced-motion preferences are supported.
+
 ### Terminal dashboard
 
 Once the server starts, the fixed connection panel displays:
 
-- Xtream server address, username, and password
+- Web interface and Xtream server addresses, username, and password
 - Full M3U playlist and sports-only playlist URLs
 - XMLTV guide URL and stream format
 
 Incoming requests and server activity appear below the panel. Request logs omit
 credentials and signed media tokens. Keep the terminal open while using the
-server, and press **Ctrl+C** to stop it. The terminal is the only user interface.
+server, and press **Ctrl+C** to stop it. Owner login changes made on the website
+also update the terminal’s connection panel.
 
 ## Connect your player
 
@@ -83,13 +118,13 @@ server, and press **Ctrl+C** to stop it. The terminal is the only user interface
 
 1. Start FreeIPTV and open your IPTV app.
 2. Add a provider using **Xtream Codes**, **Xtream API**, or **username/password login**.
-3. Copy the connection details from the terminal:
+3. Copy the connection details from **Settings → IPTV connections** or the terminal:
 
 | Player field | Value |
 | --- | --- |
 | **Server / portal URL** | The **IPTV server** address, for example `http://192.168.1.100:8091` |
-| **Username** | Your username shown in the terminal |
-| **Password** | Your password shown in the terminal |
+| **Username** | The selected account’s username |
+| **Password** | The selected account’s password |
 | **Stream format** | **HLS / m3u8**, if requested |
 
 4. Save the provider and open **Movies**, **Series**, or **Live TV**.
@@ -130,7 +165,8 @@ guide. **TMDB supplies metadata, not video.**
 ### 2. Resolve playback on demand
 
 When you play a movie or episode, FreeIPTV tries these providers in order and
-uses the first source that passes its HLS and video-segment checks:
+uses the first source that passes its HLS and video-segment checks. This is the
+default order; change it in **Settings → Providers**:
 
 | Order | Provider | How playback is resolved |
 | --- | --- | --- |
@@ -142,8 +178,9 @@ uses the first source that passes its HLS and video-segment checks:
 | 6 | **VidSrc** | Converts TMDB to IMDb, follows the gate/player chain, extracts rotating key tables from the supplied WASM, decrypts the URL list with ChaCha20, and obtains a media-host token. |
 
 Series requests include season and episode numbers. Failed providers are skipped;
-successful resolutions are cached for five minutes. Automatic attempts have a
-30-second budget per provider and a 180-second overall budget. Availability varies
+successful resolutions are cached for five minutes by default. Default attempts
+have a 30-second budget per provider and a 180-second overall budget. These values
+are configurable in the web settings. Availability varies
 by title and provider. Direct MP4-only results are skipped because this server
 serves HLS to IPTV players.
 
@@ -166,8 +203,9 @@ which provider was selected.
 
 ### 4. Relay the stream to your player
 
-FreeIPTV fetches the HLS playlist, selects the highest advertised video quality,
-and rewrites remote playlist, segment, and key URLs as **signed local URLs**.
+FreeIPTV fetches the HLS playlist, selects the highest advertised video quality
+(or retains all variants in adaptive mode), and rewrites remote playlist, segment,
+and key URLs as **signed local URLs** tied to the requesting user.
 Your IPTV app requests those local URLs; FreeIPTV forwards the requests with the
 required headers and streams the returned bytes back. Supported subtitle tracks
 can also be attached. Videos are not saved as a local library.
@@ -181,6 +219,10 @@ source publishes a supported HLS link. The repository contains no permanent TV
 channels or video library.
 
 ## Configuration
+
+Use **Settings** in the web interface for saved server, provider, catalog, and
+account configuration. Environment variables override the saved listen address
+and port:
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
@@ -205,9 +247,14 @@ trusted LAN. Other devices must be able to reach the host computer.
 
 ### Saved data
 
-The server creates `data/` on first launch. It holds your login, signing secret,
-catalog, and SQLite index. The chosen credentials are saved in `data/iptv.json`.
-Keep this directory private and back it up to preserve your account and catalog.
+The server creates `data/` on first launch. It holds accounts, server settings,
+signing secret, catalog, and SQLite index. Accounts and settings are saved in
+`data/iptv.json`; passwords are stored there so IPTV connection links can be
+shown and copied. Keep this directory private and back it up.
+
+Existing single-account installations migrate automatically. The existing login
+becomes the owner, and `data/iptv.pre-users.json` keeps a one-time backup of the
+original account file. Existing catalogs and pinned titles are retained.
 
 `data/`, `config.json`, and environment files are excluded from Git. Additional
 catalog settings and cache details are documented in [IPTV.md](IPTV.md#local-data-and-configuration).
@@ -230,6 +277,7 @@ Test provider resolution, fallback, encryption, and the local media relay:
 
 ```sh
 npm run test:providers
+npm run test:web
 ```
 
 For the available test commands and API checks, see [IPTV.md](IPTV.md#checks).

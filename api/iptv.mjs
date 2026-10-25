@@ -1,8 +1,11 @@
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { settingsStore, dataDirectory as settingsDirectory, activeUser } from './settings.mjs';
+import { requireSession } from './sessions.mjs';
 import { getCatalogData, resolveStream, fetchUpstream } from './platform.mjs';
 import { collectCatalog, catalogPageLimit, MAX_CATALOG_PAGES } from './catalog.mjs';
 import { createTitleIndex } from './title-index.mjs';
@@ -10,14 +13,15 @@ import { createSubtitleService, attachSubtitles, subtitlePlaylist, subtitleSegme
 import { highestQualityPlaylist } from './hls-quality.mjs';
 import { createSportsProvider } from './sports.mjs';
 
-const dataDirectory = new URL('../data/', import.meta.url);
+const dataDirectory = pathToFileURL(settingsDirectory + '/');
+const userContext = new AsyncLocalStorage();
+const currentUser = () => userContext.getStore()?.user || settingsStore.user(settingsStore.get()?.ownerId);
 const titleIndex = createTitleIndex({ directory: fileURLToPath(dataDirectory) });
 const subtitles = createSubtitleService({ fetchResource: fetchUpstream });
 const DAY = 86400000;
 const image = (path, size = 'w500') => path ? `https://image.tmdb.org/t/p/${size}${path}` : '';
 const text = value => String(value ?? '').replace(/[\r\n\x00-\x1f]/g, ' ').trim();
 const attr = value => text(value).replace(/"/g, "'");
-const timestamp = () => String(Math.floor(Date.now() / 1000));
 const duration = seconds => new Date(Math.max(0, seconds) * 1000).toISOString().slice(11, 19);
 const idNumber = value => { if (!/^[1-9]\d*$/.test(String(value)) || !Number.isSafeInteger(Number(value))) throw new HttpError(400, 'A positive numeric ID is required.'); return Number(value); };
 const equal = (a, b) => { const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || '')); return x.length === y.length && timingSafeEqual(x, y); };
@@ -55,13 +59,9 @@ export function initializeIPTV(config = {}) {
   initialization = (async () => {
     options = { catalogPages: catalogPageLimit(config.catalogPages), refreshHours: Math.max(1, Number(config.refreshHours) || 12) };
     await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
-    settings = await readJSON('iptv.json', null);
-    if (!settings) {
-      settings = { username: 'cinejoy', password: randomBytes(9).toString('base64url'), secret: randomBytes(32).toString('hex'), createdAt: timestamp(), pinned: [] };
-      await saveJSON('iptv.json', settings);
-    }
-    if (!settings.username || !settings.password || !settings.secret) throw new Error('IPTV account configuration is incomplete.');
-    settings.pinned ||= [];
+    await settingsStore.initialize();
+    const sync = () => { settings = settingsStore.get(); options = { catalogPages: settings.config.catalog.pages, refreshHours: settings.config.catalog.refreshHours }; };
+    sync(); settingsStore.events.on('change', sync);
     catalog = await readJSON('catalog.json', catalog);
     episodeIndex = await readJSON('episodes.json', {});
     await titleIndex.initialize();
@@ -73,10 +73,8 @@ export function initializeIPTV(config = {}) {
 
 export async function setIPTVCredentials(username, password) {
   await initializeIPTV();
-  if (!/^[A-Za-z0-9_-]{3,32}$/.test(username)) throw new Error('Username must be 3–32 letters, numbers, underscores, or hyphens.');
-  if (!/^[\x21-\x7e]{8,128}$/.test(password)) throw new Error('Password must be 8–128 printable characters without spaces.');
-  await saveJSON('iptv.json', { ...settings, username, password });
-  settings = { ...settings, username, password };
+  const owner = settingsStore.user(settingsStore.get().ownerId);
+  if (owner.username !== username || owner.password !== password) await settingsStore.upsertUser({ username, password }, owner, owner.id);
 }
 
 async function pool(items, operation, concurrency = 4) {
@@ -128,9 +126,9 @@ function origin(req) {
   return new URL(`http://${host}`).origin;
 }
 function streamURL(base, kind, id) {
-  return `${base}/${kind}/${encodeURIComponent(settings.username)}/${encodeURIComponent(settings.password)}/${id}.m3u8`;
+  return `${base}/${kind}/${encodeURIComponent(currentUser().username)}/${encodeURIComponent(currentUser().password)}/${id}.m3u8`;
 }
-function authorized(username, password) { return equal(username, settings.username) && equal(password, settings.password); }
+function authorized(username, password) { const user = settingsStore.authenticate(username, password); if (user && userContext.getStore()) userContext.getStore().user = user; return user; }
 function requireAuth(params) { if (!authorized(params.get('username'), params.get('password'))) throw new HttpError(401, 'Invalid IPTV username or password.'); }
 function reply(req, res, status, value, type = 'application/json; charset=utf-8') {
   if (res.destroyed) return;
@@ -209,7 +207,8 @@ async function seriesDetails(seriesId, base) {
 function mediaToken(upstream, extra = {}) {
   const url = new URL(upstream);
   if (!['http:', 'https:'].includes(url.protocol)) throw new HttpError(502, 'Unsupported media URL.');
-  const data = Buffer.from(JSON.stringify({ ...extra, u: url.href, exp: Date.now() + DAY })).toString('base64url');
+  const user = currentUser();
+  const data = Buffer.from(JSON.stringify({ ...extra, uid: user.id, version: user.version, u: url.href, exp: Date.now() + DAY })).toString('base64url');
   const signature = createHmac('sha256', settings.secret).update(data).digest('base64url');
   return `${data}.${signature}`;
 }
@@ -229,6 +228,9 @@ function assetTarget(token) {
   try { decoded = JSON.parse(Buffer.from(data, 'base64url')); } catch { throw new HttpError(403, 'Invalid media link.'); }
   if (!Number.isFinite(decoded.exp) || decoded.exp < Date.now()) throw new HttpError(403, 'Media link expired. Reopen the title in your player.');
   if (!/^https?:\/\//.test(decoded.u)) throw new HttpError(403, 'Invalid media URL.');
+  const user = settingsStore.user(decoded.uid);
+  if (!activeUser(user) || decoded.version !== user.version) throw new HttpError(403, 'This media link is no longer valid. Reopen the title.');
+  if (userContext.getStore()) userContext.getStore().user = user;
   return decoded;
 }
 function rewriteHLS(playlist, upstream, base, headers) {
@@ -277,7 +279,8 @@ async function serveMedia(req, res, upstream, base, decorate, upstreamHeaders) {
       }
       // Apply to root and nested IPTV masters so automatic bitrate switching
       // cannot silently select a lower rendition. Media playlists are unchanged.
-      const original = highestQualityPlaylist(Buffer.concat(chunks).toString('utf8'));
+      const rawPlaylist = Buffer.concat(chunks).toString('utf8');
+      const original = settings.config.playback.quality === 'adaptive' ? rawPlaylist : highestQualityPlaylist(rawPlaylist);
       const sourceURL = response.url || upstream;
       let playlist = rewriteHLS(original, sourceURL, base, upstreamHeaders);
       if (decorate) playlist = await decorate(playlist, original, sourceURL);
@@ -375,7 +378,7 @@ async function playerAPI(params, base) {
   const action = params.get('action') || '';
   if (!action) {
     const server = new URL(base);
-    return { user_info: { username: settings.username, password: settings.password, message: 'Cinejoy Movies, Series & Sports', auth: 1, status: 'Active', exp_date: null, is_trial: '0', active_cons: '0', created_at: settings.createdAt, max_connections: '0', allowed_output_formats: ['m3u8'] }, server_info: { url: server.hostname, port: server.port || (server.protocol === 'https:' ? '443' : '80'), https_port: '443', server_protocol: server.protocol.slice(0, -1), rtmp_port: '0', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, timestamp_now: Math.floor(Date.now() / 1000), time_now: new Date().toISOString().replace('T', ' ').slice(0, 19), process: true } };
+    return { user_info: { username: currentUser().username, password: currentUser().password, message: settings.config.server.name, auth: 1, status: 'Active', exp_date: currentUser().expiresAt ? String(Math.floor(Date.parse(currentUser().expiresAt)/1000)) : null, is_trial: '0', active_cons: '0', created_at: settings.createdAt, max_connections: '0', allowed_output_formats: ['m3u8'] }, server_info: { url: server.hostname, port: server.port || (server.protocol === 'https:' ? '443' : '80'), https_port: '443', server_protocol: server.protocol.slice(0, -1), rtmp_port: '0', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, timestamp_now: Math.floor(Date.now() / 1000), time_now: new Date().toISOString().replace('T', ' ').slice(0, 19), process: true } };
   }
   if (action === 'get_live_categories') return sports.categories();
   if (action === 'get_live_streams') return sports.rows(id => streamURL(base, 'live', id), params.get('category_id'));
@@ -398,7 +401,8 @@ async function playerAPI(params, base) {
   throw new HttpError(400, `Unsupported Xtream action: ${action}`);
 }
 
-export async function handleIPTV(req, res) {
+export function handleIPTV(req, res) { return userContext.run({}, () => handleIPTVRequest(req, res)); }
+async function handleIPTVRequest(req, res) {
   const url = new URL(req.url, 'http://local');
   const path = url.pathname;
   const relevant = ['/player_api.php', '/get.php', '/xmltv.php', '/iptv/titles', '/iptv/refresh', '/iptv/library', '/iptv/sports/refresh'].includes(path) || path.startsWith('/iptv/media/') || path.startsWith('/iptv/subtitles/') || /^\/(movie|series|live)\//.test(path);
@@ -409,18 +413,18 @@ export async function handleIPTV(req, res) {
       if (path.startsWith('/iptv/') && !/^\/iptv\/(media|subtitles)\//.test(path)) manageOrigin(req);
       res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Range' }); res.end(); return true;
     }
-    const base = origin(req);
+    const base = settings.config.server.publicUrl || origin(req);
     const params = url.searchParams;
     if (req.method === 'POST' && path === '/player_api.php') for (const [key, value] of Object.entries(await requestBody(req))) params.set(key, value);
     if (path === '/iptv/titles' && req.method === 'GET') {
-      manageOrigin(req);
+      manageOrigin(req); requireSession(req);
       const query = (params.get('q') || '').trim();
       if (query.length < 2 || query.length > 200) throw new HttpError(400, 'Enter a title between 2 and 200 characters.');
       reply(req, res, 200, { items: titleIndex.search(query, params.get('type')), source: 'local', updatedAt: titleIndex.status().updatedAt || null });
       return true;
     }
     if (['/iptv/refresh', '/iptv/library', '/iptv/sports/refresh'].includes(path)) {
-      manageOrigin(req);
+      manageOrigin(req); requireSession(req, true);
       if (req.method !== 'POST') throw new HttpError(405, 'Use POST.');
       if (!(req.headers['content-type'] || '').includes('application/json')) throw new HttpError(415, 'Use application/json.');
       if (path === '/iptv/sports/refresh') { sports.refresh().catch(error => console.warn('IPTV sports:', error.message)); reply(req, res, 202, { refreshing: true }); return true; }
@@ -430,10 +434,10 @@ export async function handleIPTV(req, res) {
       if (!type) throw new HttpError(400, 'Type must be movie or tv.');
       const id = idNumber(input.tmdb);
       const item = await getCatalogData(`/${type}/${id}`);
-      if (!settings.pinned.some(pin => pin.id === id && pin.type === type)) settings.pinned.push({ id, type, title: item.title || item.name });
+      await settingsStore.mutate(next => { if (!next.pinned.some(pin => pin.id === id && pin.type === type)) next.pinned.push({ id, type, title: item.title || item.name }); });
       const key = type === 'movie' ? 'movies' : 'series';
       if (!catalog[key].some(existing => existing.id === id)) catalog[key].push(item);
-      await saveJSON('iptv.json', settings); await saveJSON('catalog.json', catalog);
+      await saveJSON('catalog.json', catalog);
       reply(req, res, 200, { added: true, title: item.title || item.name }); return true;
     }
     if (!['GET', 'HEAD'].includes(req.method) && !(req.method === 'POST' && path === '/player_api.php')) throw new HttpError(405, 'Method not allowed.');
@@ -441,7 +445,7 @@ export async function handleIPTV(req, res) {
     if (media) {
       const target = assetTarget(media[1]);
       if (target.sub) throw new HttpError(403, 'Invalid media link type.');
-      await serveMedia(req, res, target.u, base, undefined, target.headers); return true;
+      await serveMedia(req, res, target.u, origin(req), undefined, target.headers); return true;
     }
     const subtitle = path.match(/^\/iptv\/subtitles\/([^/]+)\/(playlist\.m3u8|segment-(\d+)\.vtt)$/);
     if (subtitle) {
@@ -476,3 +480,23 @@ export async function handleIPTV(req, res) {
   }
   return true;
 }
+
+// Authenticated browser playback uses the same signed relay as IPTV players.
+export async function browserPlay(req, res, user, input) {
+  await initializeIPTV();
+  return userContext.run({ user }, async () => {
+    const base = origin(req);
+    if (input.type === 'live') {
+      const live = await sports.resolve(idNumber(input.id));
+      return { url: assetURL(base, live.url, 'playlist', live.headers), provider: 'sports' };
+    }
+    const type = input.type === 'tv' ? 'series' : input.type === 'movie' ? 'movie' : null;
+    if (!type) throw new HttpError(400, 'Choose a movie, episode, or live event.');
+    const controller = new AbortController(); res.once('close', () => controller.abort());
+    const resolved = await resolveStream(input.id, type, input.season, input.episode, null, Boolean(input.fresh), { signal: controller.signal });
+    console.info(`Web playback: ${resolved.provider} / ${resolved.server} (${type} ${input.id})`);
+    return { url: assetURL(base, resolved.master, 'playlist', resolved.headers), provider: resolved.provider, source: resolved.server };
+  });
+}
+export async function browserSports() { await initializeIPTV(); return sports.rows(() => ''); }
+export function catalogStatus() { return { movies: catalog.movies.length, series: catalog.series.length, updatedAt: catalog.updatedAt, refreshing: Boolean(refreshPromise), progress: refreshProgress || null, errors: catalog.errors?.length || 0 }; }

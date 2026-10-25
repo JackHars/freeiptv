@@ -40,11 +40,11 @@ test('movie playback and legacy API relay keep provider headers on nested HLS, a
   });
   upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
   const remote = `http://127.0.0.1:${upstream.address().port}`;
-  let server;
+  let server, apiCookie;
   try {
     globalThis.fetch = async (url, options) => {
       const u = new URL(url);
-      if (u.hostname === '127.0.0.1') return fetchOriginal(url, options);
+      if (u.hostname === '127.0.0.1') return fetchOriginal(url, apiCookie && u.port === String(server?.address()?.port) ? {...options,headers:{...options?.headers,cookie:apiCookie}} : options);
       if (u.hostname === 'api.zstream.mov') {
         const body = JSON.parse(options.body);
         return new Response(JSON.stringify({ streams: [{ type: 'hls', id: 'fixture', playlist: remote + (body.tmdb_id === '551' ? '/hls/unstable' : '/redirect'), headers: required }] }));
@@ -60,6 +60,8 @@ test('movie playback and legacy API relay keep provider headers on nested HLS, a
     const login = JSON.parse(await readFile(new URL('../data/iptv.json', import.meta.url)));
     server = createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening');
     const base = `http://127.0.0.1:${server.address().port}`;
+    const signedIn = await fetchOriginal(base + '/ui/login', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:login.username,password:login.password})});
+    apiCookie = signedIn.headers.get('set-cookie').split(';')[0];
     assert.equal((await fetch(base + '/providers').then(r => r.json())).providers.length, 6);
     for (const path of ['/resolve?tmdb=550&provider=missing', '/resolve?tmdb=550&kind=series']) assert.equal((await fetch(base + path)).status, 400);
     const r = await fetch(base + `/movie/${encodeURIComponent(login.username)}/${encodeURIComponent(login.password)}/550.m3u8`);

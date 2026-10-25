@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { webcrypto as crypto } from 'node:crypto';
+import { settingsStore } from './settings.mjs';
 import { createProviderResolver, PROVIDERS, mediaHeaders } from './providers.mjs';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
@@ -215,7 +216,7 @@ async function resolveCinejoy(input, ctx) {
   throw new Error(Object.entries(errors).map(([k, v]) => `${k}: ${v}`).join('; '));
 }
 
-const resolveProviders = createProviderResolver({ cinejoy: resolveCinejoy, getCatalogData: tmdb_get });
+const resolveProviders = createProviderResolver({ cinejoy: resolveCinejoy, getCatalogData: tmdb_get, getPolicy: () => settingsStore.config().playback });
 function proxyLink(url, headers = {}) {
   const query = new URLSearchParams({ u: url });
   const safe = mediaHeaders(headers);

@@ -276,12 +276,17 @@ async function vidsrc(input, ctx, getCatalogData) {
   throw new Error(error);
 }
 
-export function createProviderResolver({ cinejoy, getCatalogData, fetchResource, providerTimeoutMs = 30000, totalTimeoutMs = 180000, cacheTtlMs = 300000 }) {
+export function createProviderResolver({ cinejoy, getCatalogData, fetchResource, getPolicy, providerTimeoutMs = 30000, totalTimeoutMs = 180000, cacheTtlMs = 300000 }) {
   const cache = new Map();
   const adapters = { cinejoy, atlantic, tvids, zstream, vidrift, vidsrc: (input, ctx) => vidsrc(input, ctx, getCatalogData) };
   return async function resolve(input) {
     input = { season: null, episode: null, ...input, kind: input.kind === 'tv' ? 'series' : input.kind };
     input.signal?.throwIfAborted();
+    const policy = getPolicy?.();
+    const timeout = policy ? policy.providerTimeout * 1000 : providerTimeoutMs;
+    const total = policy ? policy.totalTimeout * 1000 : totalTimeoutMs;
+    const ttl = policy ? policy.cacheSeconds * 1000 : cacheTtlMs;
+    const available = policy ? policy.order.filter(p => policy.enabled.includes(p)) : PROVIDERS;
     if (!/^[1-9]\d*$/.test(String(input.tmdb)) || !Number.isSafeInteger(Number(input.tmdb))) throw failure('tmdb must be a positive integer', 400);
     input.tmdb = Number(input.tmdb);
     if (!['movie', 'series'].includes(input.kind)) throw failure('kind must be movie or series', 400);
@@ -292,28 +297,30 @@ export function createProviderResolver({ cinejoy, getCatalogData, fetchResource,
       }
     } else { input.season = null; input.episode = null; }
     if (input.provider && !PROVIDERS.includes(input.provider)) throw failure('Unknown provider', 400);
+    if (input.provider && !available.includes(input.provider)) throw failure('This provider is disabled', 400);
+    if (input.server && !available.includes('cinejoy')) throw failure('Cinejoy is disabled', 400);
     if (input.server && input.provider && input.provider !== 'cinejoy') throw failure('server is only supported for cinejoy', 400);
-    const order = (input.provider ? [input.provider] : input.server ? ['cinejoy'] : PROVIDERS).filter(p => !input.exclude?.includes(p));
-    const key = JSON.stringify([input.tmdb, input.kind, input.season, input.episode, order, input.server || null]);
+    const order = (input.provider ? [input.provider] : input.server ? ['cinejoy'] : available).filter(p => !input.exclude?.includes(p));
+    const key = JSON.stringify([input.tmdb, input.kind, input.season, input.episode, order, input.server || null, policy || null]);
     // A selected provider that failed at playback must not be reused from cache.
     for (const [entryKey, entry] of cache) {
       if (entry.value.tmdb === input.tmdb && entry.value.kind === input.kind && input.exclude?.includes(entry.value.provider)) cache.delete(entryKey);
     }
     const hit = cache.get(key);
     if (!input.fresh && hit && hit.expires > Date.now()) return { ...hit.value, cached: true };
-    const overall = AbortSignal.any([AbortSignal.timeout(totalTimeoutMs), ...(input.signal ? [input.signal] : [])]);
+    const overall = AbortSignal.any([AbortSignal.timeout(total), ...(input.signal ? [input.signal] : [])]);
     const tried = [], errors = {};
     for (const provider of order) {
       if (overall.aborted) break;
       tried.push(provider);
-      const signal = AbortSignal.any([overall, AbortSignal.timeout(input.provider ? Math.max(providerTimeoutMs, 75000) : providerTimeoutMs)]);
+      const signal = AbortSignal.any([overall, AbortSignal.timeout(input.provider && !policy ? Math.max(timeout, 75000) : timeout)]);
       const ctx = createProviderContext({ signal, fetchResource });
       try {
         const result = await adapters[provider](input, ctx);
         signal.throwIfAborted();
         if (!result?.master) throw new Error('No playable HLS source');
         const out = { ...result, provider, provider_order: [...tried], provider_errors: { ...errors }, tmdb: input.tmdb, kind: input.kind, season: input.season, episode: input.episode, cached: false };
-        cache.set(key, { expires: Date.now() + cacheTtlMs, value: out });
+        cache.set(key, { expires: Date.now() + ttl, value: out });
         while (cache.size > 256) cache.delete(cache.keys().next().value);
         return out;
       } catch (e) { errors[provider] = signal.aborted ? 'Provider timed out or request cancelled' : e.message; }

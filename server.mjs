@@ -1,7 +1,9 @@
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { handleApiRequest } from './api/platform.mjs';
-import { handleIPTV } from './api/iptv.mjs';
+import { handleWeb, recordActivity } from './api/web.mjs';
+import { requireSession, sameOrigin } from './api/sessions.mjs';
+import { initializeIPTV, handleIPTV } from './api/iptv.mjs';
 
 const routes = new Set(['api', 'health', 'providers', 'servers', 'search', 'browse', 'title', 'episodes', 'images', 'resolve', 'master', 'watch', 'proxy']);
 
@@ -23,7 +25,7 @@ function json(res, status, data) {
 
 export function createServer({ onRequest } = {}) {
   return http.createServer(async (req, res) => {
-    if (onRequest) {
+    {
       const started = Date.now();
       let target = '[invalid path]';
       try { target = requestLabel(req.url); } catch { /* avoid logging untrusted request text */ }
@@ -31,7 +33,7 @@ export function createServer({ onRequest } = {}) {
       const record = status => {
         if (recorded) return;
         recorded = true;
-        try { onRequest({ method: req.method, target, status, client: req.socket.remoteAddress, durationMs: Date.now() - started }); }
+        try { const event = { method: req.method, target, status, client: req.socket.remoteAddress, durationMs: Date.now() - started }; recordActivity(event); onRequest?.(event); }
         catch { /* logging must not interrupt a request */ }
       };
       res.once('finish', () => record(res.statusCode));
@@ -40,9 +42,15 @@ export function createServer({ onRequest } = {}) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     try {
+      if (await handleWeb(req, res)) return;
       if (await handleIPTV(req, res)) return;
       const request = new URL(req.url, 'http://local');
       if (routes.has(request.pathname.slice(1))) {
+        if (!['/health', '/api', '/providers'].includes(request.pathname)) {
+          await initializeIPTV();
+          requireSession(req, true);
+          if (req.method !== 'GET') sameOrigin(req);
+        }
         if (req.method === 'OPTIONS') {
           res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Range' });
           return res.end();
@@ -51,7 +59,7 @@ export function createServer({ onRequest } = {}) {
       }
       return json(res, 404, { error: 'Not found.' });
     } catch (error) {
-      if (!res.headersSent) json(res, 500, { error: error.message });
+      if (!res.headersSent) json(res, error.status || 500, { error: error.message });
       else res.destroy();
     }
   });

@@ -1,9 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
+import { join } from 'node:path';
 import { createServer } from './server.mjs';
 import { initializeEngine } from './api/platform.mjs';
 import { initializeIPTV, setIPTVCredentials, warmIPTV } from './api/iptv.mjs';
 import { promptForLogin } from './api/login-tui.mjs';
+import { settingsStore, dataDirectory } from './api/settings.mjs';
 import { createDashboard } from './api/dashboard.mjs';
 
 let config = {};
@@ -11,7 +13,7 @@ try { config = JSON.parse(await readFile(new URL('./config.json', import.meta.ur
 catch (error) { if (error.code !== 'ENOENT') throw error; }
 
 let existingLogin = null;
-try { existingLogin = JSON.parse(await readFile(new URL('./data/iptv.json', import.meta.url), 'utf8')); }
+try { existingLogin = JSON.parse(await readFile(join(dataDirectory, 'iptv.json'), 'utf8')); }
 catch (error) { if (error.code !== 'ENOENT') throw error; }
 
 let newLogin = null;
@@ -24,14 +26,15 @@ if (interactive) {
   process.exit(1);
 }
 
+await settingsStore.initialize(config);
 await initializeIPTV(config.iptv);
 if (newLogin) {
   await setIPTVCredentials(newLogin.username, newLogin.password);
   console.log('IPTV login saved.');
 }
 await initializeEngine();
-const port = Number(process.env.PORT || config.port || 8091);
-const host = process.env.HOST || config.host || '0.0.0.0';
+const port = Number(process.env.PORT || settingsStore.config().server.port);
+const host = process.env.HOST || settingsStore.config().server.host;
 const login = newLogin || existingLogin;
 const dashboard = createDashboard({ password: login.password });
 const server = createServer({ onRequest: dashboard.logRequest });
@@ -43,17 +46,23 @@ server.listen(port, host, () => {
   const address = ['127.0.0.1', 'localhost'].includes(host) ? '127.0.0.1'
     : host !== '0.0.0.0' ? host : lanAddresses[0]?.address || '127.0.0.1';
   const base = `http://${address}:${actualPort}`;
-  const query = new URLSearchParams({ username: login.username, password: login.password });
-  const details = {
-    server: base,
-    username: login.username,
-    password: login.password,
-    playlist: `${base}/get.php?${query}&type=m3u_plus&output=m3u8`,
-    sportsPlaylist: `${base}/get.php?${query}&type=m3u_plus&output=m3u8&content=live`,
-    epg: `${base}/xmltv.php?${query}`,
+  const makeDetails = () => {
+    const login = settingsStore.user(settingsStore.get().ownerId);
+    const query = new URLSearchParams({ username: login.username, password: login.password });
+    const advertised = settingsStore.config().server.publicUrl || base;
+    return {
+      server: base,
+      xtreamServer: advertised,
+      username: login.username,
+      password: login.password,
+      playlist: `${advertised}/get.php?${query}&type=m3u_plus&output=m3u8`,
+      sportsPlaylist: `${advertised}/get.php?${query}&type=m3u_plus&output=m3u8&content=live`,
+      epg: `${advertised}/xmltv.php?${query}`,
+    };
   };
   if (interactive) {
-    dashboard.start(details);
+    dashboard.start(makeDetails());
+    settingsStore.events.on('change', () => dashboard.update(makeDetails()));
   } else console.log(`IPTV server: ${base}`);
   warmIPTV();
 });

@@ -5,7 +5,9 @@ password in the terminal setup screen. On later interactive launches, enter
 new values or press Enter to keep the saved ones. The server starts after
 setup and shows the Xtream server address, login, M3U playlist URLs, and
 XMLTV guide URL in a fixed terminal panel. Incoming requests scroll below it.
-There is no browser interface.
+Open the printed web address to browse and manage the server with the same login.
+The initial account is the owner administrator. Add more accounts in
+**Settings → Users**, and copy each account’s details from **IPTV connections**.
 
 ## Connect an IPTV player
 
@@ -14,7 +16,8 @@ login**) in your IPTV app and enter:
 
 - **Server:** the `IPTV server` address printed in the terminal, for example
   `http://192.168.1.100:8091`.
-- **Username and password:** the values printed in the terminal.
+- **Username and password:** the selected user’s values in **Settings → IPTV
+  connections**, or the owner’s values printed in the terminal.
 - **Stream format:** HLS / m3u8, if the app asks.
 
 For an M3U app, copy the `M3U playlist` URL printed in the terminal. If the
@@ -35,12 +38,15 @@ replacing `1396` with the series TMDB ID.
 The movie and series catalog comes from TMDB metadata. It is a browsing
 catalog, not a list of confirmed video files. When playback begins, the
 server tries Cinejoy, Atlantic, Tvids, Zstream, Vidrift, and VidSrc in that
-order for a playable HLS source. VidSrc uses TMDB to look up the IMDb ID.
+order by default for a playable HLS source. Settings → Providers controls the
+enabled sources, fallback order, time limits, and resolution cache. VidSrc uses TMDB to look up the IMDb ID.
 Each source is checked through its highest-quality variant and a video segment
 before selection. Its browser-style headers are retained throughout playback. The IPTV
 server rewrites HLS playlists to local signed links and relays playlists,
 video segments, keys, and supported subtitles to the player. The highest
-advertised video quality is selected. Media links expire after 24 hours;
+advertised video quality is selected by default; adaptive mode lets the player
+choose among available variants. Media links expire after 24 hours and are
+revoked when their user is changed, disabled, deleted, or expires;
 reopen the title to get fresh links.
 
 Sports events are read from external event pages. An event appears in the
@@ -68,18 +74,25 @@ The server also exposes JSON endpoints for catalog maintenance:
 - `POST /iptv/refresh` starts a catalog and title-index refresh.
 - `POST /iptv/sports/refresh` starts a sports schedule refresh.
 
-These maintenance endpoints are intended for use on a trusted LAN. The
+Maintenance endpoints require a signed-in browser session. Mutations require an
+administrator and same-origin requests. The
 normal catalog refreshes on demand after 12 hours; sports schedules refresh
 every minute. Large catalog imports can take several minutes. The previous
 catalog stays available during a refresh.
 
 ## Playback provider diagnostics
 
-`GET /providers` lists the six installed providers in fallback order. IPTV movie
+`GET /providers` lists the six installed provider adapters. The current enabled
+order is shown in **Settings → Providers**. IPTV movie
 and episode URLs select a provider automatically; existing player settings work
 without changes. Live sports continue to use the separate sports adapter.
 
-For a targeted check, use `GET /resolve?tmdb=550&kind=movie&provider=atlantic`.
+Legacy diagnostic endpoints (`/resolve`, `/master`, `/watch`, `/proxy`, and
+metadata helpers) require an administrator browser session. They do not provide
+an anonymous alternative to account-based playback. `/health`, `/api`, and the
+installed adapter list at `/providers` remain public.
+
+For a targeted check in your signed-in browser, use `GET /resolve?tmdb=550&kind=movie&provider=atlantic`.
 For series, use `kind=series&s=1&e=1`. The same fields work with JSON `POST /resolve`.
 Omit `provider` for automatic fallback. The response includes `provider`,
 `server`, `headers`, `provider_order`, `provider_errors`, and `master_proxied`.
@@ -90,8 +103,8 @@ Use `fresh=1` on GET `/resolve` (or `fresh: true` in JSON) to bypass the five-mi
 resolution cache. Failures are not cached. The legacy `server` parameter pins a
 Cinejoy mirror and cannot be combined with another provider.
 
-Automatic resolution allows up to 30 seconds per provider and 180 seconds overall;
-a diagnostic request pinned to one provider allows 75 seconds. Failed HLS and
+Resolution defaults to 30 seconds per provider and 180 seconds overall. Both
+limits are configurable and also apply to requests pinned to a provider. Failed HLS and
 placeholder segments trigger fallback. MP4-only sources are skipped. If the
 selected master fails before playback starts, the IPTV route makes one further
 attempt excluding that provider. It cannot switch sources seamlessly in the middle
@@ -99,25 +112,35 @@ of a playing segment; reopen the title if an upstream stream later fails.
 
 ## Local data and configuration
 
-`data/iptv.json` stores the chosen login, signing secret, and pinned titles.
+`data/iptv.json` stores users, the owner account, saved server/provider/catalog
+settings, the signing secret, and pinned titles. Existing single-user files are
+migrated automatically with a one-time backup in `data/iptv.pre-users.json`.
 `data/catalog.json`, `data/titles.sqlite`, `data/episodes.json`, and
 `data/sports.json` store the catalog and event caches. Keep `data/` if you
 want to preserve the account and catalog across restarts. It is excluded
 from Git. No video library is stored.
 
-To change the login, restart with `npm start` in a terminal and enter the new
-values. Usernames must have 3–32 letters, numbers, underscores, or hyphens.
+Change your login in **Settings → My account**. Administrators manage other
+accounts in **Settings → Users**. The terminal setup still edits the owner login. Usernames must have 3–32 letters, numbers, underscores, or hyphens.
 Passwords must have 8–128 printable characters without spaces. Update the
 account in your IPTV app afterwards.
 
-`config.json` can set `iptv.catalogPages` (1–2,000; default 2,000) and
-`iptv.refreshHours` (default 12). Restart after changing the file. The
-server defaults to `0.0.0.0:8091`; `HOST` and `PORT` override that listener.
+Use **Settings → Library** for catalog pages (1–2,000; default 2,000) and refresh
+interval (default 12 hours). Legacy `config.json` values seed these settings on
+first migration; saved web settings then take precedence. The server defaults to
+`0.0.0.0:8091`; **Settings → General** changes the saved listener, and `HOST` and
+`PORT` override it. Listen changes require a restart; other settings apply to new
+requests. `FREEIPTV_DATA_DIR` can select a separate data directory for testing.
+
+Web sessions last up to 12 hours and are cleared on restart. Account changes
+invalidate older sessions and signed media links. Viewer accounts cannot change
+server settings or view another account’s connection details. The owner cannot
+be disabled, expired, demoted, or deleted.
 
 ## Checks
 
 Run `npm run check`, `npm run test:login`, `npm run test:catalog-import`,
-`npm run test:iptv-quality`, `npm run test:providers`, and `npm run test:sports` for offline checks.
+`npm run test:iptv-quality`, `npm run test:providers`, `npm run test:web`, and `npm run test:sports` for offline checks.
 With a populated catalog and running server, `npm run test:iptv-catalog`
 checks Xtream movie and series responses. It reads the local saved login;
 for a remote server, set `IPTV_BASE`, `IPTV_USERNAME`, and `IPTV_PASSWORD`.

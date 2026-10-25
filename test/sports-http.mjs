@@ -31,8 +31,8 @@ test('sports Xtream import, EPG, live M3U, auth and live HLS proxy preserve qual
     const settings = JSON.parse(await readFile(new URL('../data/iptv.json', import.meta.url)));
     server = createServer({ onRequest: event => requests.push(event) }); server.listen(0, '127.0.0.1'); await once(server, 'listening');
     const base = `http://127.0.0.1:${server.address().port}`;
-    for (const path of ['/', '/iptv', '/docs', '/iptv/setup', '/app.js']) {
-      assert.equal((await fetch(base + path)).status, 404, `${path} should not serve a browser UI`);
+    for (const path of ['/iptv', '/docs', '/iptv/setup']) {
+      assert.equal((await fetch(base + path)).status, 404, `${path} should not expose legacy UI`);
     }
     const auth = new URLSearchParams({ username: settings.username, password: settings.password });
     async function api(action, extra = {}, post = false) {
