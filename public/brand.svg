@@ -1,5 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 48" role="img" aria-labelledby="title">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 52" role="img" aria-labelledby="title">
   <title id="title">FIPTV</title>
-  <rect width="120" height="48" rx="14" fill="#f5f5f7"/>
-  <path fill="#111216" fill-rule="evenodd" d="M18 14h14v4H22v4h9v4h-9v8h-4Zm18 0h4v20h-4Zm8 0h8a7 7 0 0 1 0 14h-4v6h-4Zm4 4v6h4a3 3 0 0 0 0-6Zm15-4h16v4h-6v16h-4V18h-6Zm20 0h4.5l5 14 5-14h4.5l-7.5 20h-4Z"/>
+  <defs>
+    <linearGradient id="lettering" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#fff"/>
+      <stop offset="1" stop-color="#e0e3eb"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#edf4ff"/>
+      <stop offset="1" stop-color="#a8c8f4"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#lettering)" d="M12 42V14a4 4 0 0 1 4-4h20v6H19v8h15v6H19v12Zm30-32h7v32h-7Z"/>
+  <path fill="url(#lettering)" fill-rule="evenodd" d="M55 42V14a4 4 0 0 1 4-4h10c9 0 14 4 14 11s-5 11-14 11h-7v10Zm7-26v10l11-5Z"/>
+  <path fill="url(#screen)" d="M89 10h28v6h-11v26h-6V16H89Zm33 0h7l10 25 10-25h7l-13 32h-8Z"/>
 </svg>
