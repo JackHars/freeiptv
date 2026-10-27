@@ -1,6 +1,6 @@
 <div align="center">
 
-# FreeIPTV
+# <img src="public/brand.svg" alt="FIPTV logo" height="32"> FreeIPTV
 
 **A local IPTV server, populated with media by manipulating existing illegal streaming services**
 
