@@ -2,7 +2,7 @@
 
 # <img src="public/brand.svg" alt="FIPTV logo" height="32">
 
-**A local IPTV server, populated with media by manipulating existing illegal streaming services**
+**A local IPTV server, populated with media by manipulating existing streaming services**
 
 Movies, series, and live sports through an Xtream-compatible API and M3U playlists.
 
